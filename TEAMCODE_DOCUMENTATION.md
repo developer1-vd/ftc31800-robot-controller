@@ -284,7 +284,7 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
 | RedTeamBotAutoFarShort | Pedro | Enabled | meet3_auto | Red far, short path |
 | BlueTeamBotAutoSimple | Auto | Disabled | - | Simplified blue autonomous |
 | RedTeamBotAutoSimple | Auto | Enabled | - | Simplified red autonomous |
-| BallSpeakerAuto | Auto | Enabled | - | Camera-only: detects balls and speaks the color (no motors needed) |
+| BallSpeakerAuto | Auto | Enabled | - | Speaks detected ball colors; turns to face the closest ball if drive motors exist (camera-only OK) |
 | BallDetectionTest | TeleOp | Enabled | - | Ball detection telemetry + auto-aim (LB any, X blue, B red, Y yellow) |
 
 ---
