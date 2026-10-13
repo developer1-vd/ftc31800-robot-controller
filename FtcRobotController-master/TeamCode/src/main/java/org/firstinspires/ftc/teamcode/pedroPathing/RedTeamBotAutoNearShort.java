@@ -12,6 +12,7 @@ import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.Servo;
 import com.qualcomm.robotcore.util.ElapsedTime;
 
+import org.firstinspires.ftc.teamcode.mechanisms.BallCollector;
 import org.firstinspires.ftc.teamcode.mechanisms.FeederLauncher;
 
 @Autonomous(name = "RedTeamBotAutoNearShort", group = "Examples")
@@ -41,6 +42,7 @@ public class RedTeamBotAutoNearShort extends OpMode {
         RETURN_TO_LEAVE,
         END,
 
+        COLLECT_BALL,
         EXIT
     };
 
@@ -85,6 +87,12 @@ public class RedTeamBotAutoNearShort extends OpMode {
     FeederLauncher leftFeederLauncher = new FeederLauncher();
 
     FeederLauncher rightFeederLauncher = new FeederLauncher();
+
+    // After the path, use the camera to find and pick up a ball with the time left.
+    // Set to false to skip ball pickup.
+    private static final boolean COLLECT_BALL_AFTER_PATH = true;
+    private static final double AUTO_LENGTH_MS = 30000;
+    private final BallCollector ballCollector = new BallCollector();
 
     public void buildPaths() {
         /* This is our scorePreload path. We are using a BezierLine, which is a straight line. */
@@ -157,6 +165,18 @@ public class RedTeamBotAutoNearShort extends OpMode {
                 /* This case checks the robot's position and will wait until the robot position is close (1 inch away) from the scorePose's position */
                 if(!follower.isBusy()) {
                     /* Set the state to a Case we won't use or define, so it just stops running an new paths */
+                    if (COLLECT_BALL_AFTER_PATH) {
+                        ballCollector.start();
+                        setPathState(PATHSTATE.COLLECT_BALL);
+                    } else {
+                        setPathState(PATHSTATE.EXIT);
+                    }
+                }
+                break;
+
+            case COLLECT_BALL:
+                ballCollector.update(AUTO_LENGTH_MS - opmodeTimer.milliseconds());
+                if (ballCollector.isDone()) {
                     setPathState(PATHSTATE.EXIT);
                 }
                 break;
@@ -339,6 +359,7 @@ public class RedTeamBotAutoNearShort extends OpMode {
         }
 
         follower = Constants.createFollower(hardwareMap);
+        ballCollector.init(hardwareMap, telemetry, follower, intake);
         buildPaths();
         follower.setStartingPose(startPose);
 
@@ -372,6 +393,7 @@ public class RedTeamBotAutoNearShort extends OpMode {
     /** We do not use this because everything should automatically disable **/
     @Override
     public void stop() {
+        ballCollector.stop();
         leftFeederLauncher.stop();
         rightFeederLauncher.stop();
     }

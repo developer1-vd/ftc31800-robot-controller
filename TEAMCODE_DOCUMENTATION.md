@@ -240,6 +240,19 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
 - Rev Robotics control hub
 - Motor controllers: Rev Expansion Hub
 
+### 8. **BallCollector** (`mechanisms/BallCollector.java`)
+- **Purpose:** Autonomous ball pickup after the Pedro path finishes
+- **Steps:** SEARCH (turn slowly until a ball is seen, 4 s limit) → APPROACH (drive at the ball,
+  steering to keep it centered, intake on) → CAPTURE (drive straight 0.7 s once the ball is
+  within 10 in) → DONE. Always stops with 1 s of auto left.
+- **Used in:** `RedTeamBotAutoNearShort`, `BlueTeamBotAutoNearShort`, `RedTeamBotAutoFarShort`,
+  `BlueTeamBotAutoFarShort` (new `COLLECT_BALL` path state after `END`). Turn off per auto with
+  `COLLECT_BALL_AFTER_PATH = false`.
+- **Safety:** if "Webcam 1" is missing, pickup is skipped instead of crashing the auto.
+- **Tuning:** speeds, gains, and timeouts are constants at the top of the class.
+  `INTAKE_IN_POWER` is 1.0 (same as gamepad2 A in teleop); flip it if the intake spits balls out.
+  Assumes camera and intake face the front of the robot.
+
 ---
 
 ## OpMode Status Reference

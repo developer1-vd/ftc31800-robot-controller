@@ -11,6 +11,7 @@ import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.Servo;
 import com.qualcomm.robotcore.util.ElapsedTime;
 
+import org.firstinspires.ftc.teamcode.mechanisms.BallCollector;
 import org.firstinspires.ftc.teamcode.mechanisms.FeederLauncher;
 
 @Autonomous(name = "RedTeamBotAutoFarShort", group = "Examples")
@@ -31,6 +32,7 @@ public class RedTeamBotAutoFarShort extends OpMode {
         SHOOT_UPDATE,
         SCORE_TO_LEAVE,
         END,
+        COLLECT_BALL,
         EXIT
     }
 
@@ -64,6 +66,12 @@ public class RedTeamBotAutoFarShort extends OpMode {
     private FeederLauncher leftFeederLauncher = new FeederLauncher();
     private FeederLauncher rightFeederLauncher = new FeederLauncher();
 
+    // After the path, use the camera to find and pick up a ball with the time left.
+    // Set to false to skip ball pickup.
+    private static final boolean COLLECT_BALL_AFTER_PATH = true;
+    private static final double AUTO_LENGTH_MS = 30000;
+    private final BallCollector ballCollector = new BallCollector();
+
     // ------------------- PATH BUILDING -------------------
     public void buildPaths() {
         leavelaunchline = new Path(new BezierLine(scorePose, endPose));
@@ -92,6 +100,18 @@ public class RedTeamBotAutoFarShort extends OpMode {
 
             case END:
                 if (!follower.isBusy()) {
+                    if (COLLECT_BALL_AFTER_PATH) {
+                        ballCollector.start();
+                        setPathState(PATHSTATE.COLLECT_BALL);
+                    } else {
+                        setPathState(PATHSTATE.EXIT);
+                    }
+                }
+                break;
+
+            case COLLECT_BALL:
+                ballCollector.update(AUTO_LENGTH_MS - opmodeTimer.milliseconds());
+                if (ballCollector.isDone()) {
                     setPathState(PATHSTATE.EXIT);
                 }
                 break;
@@ -248,6 +268,7 @@ public class RedTeamBotAutoFarShort extends OpMode {
         arm = hardwareMap.get(Servo.class, "armServo");
 
         follower = Constants.createFollower(hardwareMap);
+        ballCollector.init(hardwareMap, telemetry, follower, intake);
         buildPaths();
         follower.setStartingPose(scorePose);
 
@@ -271,6 +292,7 @@ public class RedTeamBotAutoFarShort extends OpMode {
 
     @Override
     public void stop() {
+        ballCollector.stop();
         leftFeederLauncher.stop();
         rightFeederLauncher.stop();
     }
