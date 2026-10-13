@@ -34,6 +34,11 @@ public class TeamBotTeleop_latest extends OpMode {
     private static final double BALL_MAX_AUTO_TURN = 0.4;
     private static final double BALL_AIM_TOLERANCE = 2.0;  // degrees
 
+    // Spoken ball announcements on the Driver Station. Set to false to start silent;
+    // gamepad1 BACK toggles it during the match.
+    private static final boolean SOUND_ENABLED = true;
+    private boolean lastSoundToggle = false;
+
     // Debounce for shoot-ready indicator
     private int shootInRangeCount = 0;
     private static final int SHOOT_DEBOUNCE_FRAMES = 3;
@@ -230,6 +235,7 @@ public class TeamBotTeleop_latest extends OpMode {
 
         // AprilTag + ball detection on the same camera
         ballDetector.buildProcessors(telemetry);
+        ballDetector.setSoundEnabled(SOUND_ENABLED);
         aprilTagWebcam.init(hardwareMap, telemetry, ballDetector.getProcessors());
 
         // ~1 foot (12 inches) shoot window
@@ -303,6 +309,13 @@ public class TeamBotTeleop_latest extends OpMode {
         // Driver keeps forward/strafe control; only rotation is overridden.
         //----------------------------------
         ballDetector.update();
+
+        // Sound on/off: gamepad1 BACK (one toggle per press)
+        if (gamepad1.back && !lastSoundToggle) {
+            ballDetector.setSoundEnabled(!ballDetector.isSoundEnabled());
+            telemetry.speak(ballDetector.isSoundEnabled() ? "sound on" : "sound off");
+        }
+        lastSoundToggle = gamepad1.back;
 
         BallDetector.Ball ballTarget = null;
         if (gamepad1.x) {
@@ -585,6 +598,7 @@ public class TeamBotTeleop_latest extends OpMode {
         } else {
             telemetry.addData("Closest Ball", "none");
         }
+        telemetry.addData("Ball Sound", ballDetector.isSoundEnabled() ? "ON (BACK to mute)" : "OFF (BACK to unmute)");
         if (ballAiming) {
             telemetry.addData("Ball Aim", ballTarget != null
                     ? "AIMING at " + ballTarget.color

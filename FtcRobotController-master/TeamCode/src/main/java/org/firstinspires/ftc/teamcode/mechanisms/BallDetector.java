@@ -4,6 +4,7 @@ import android.graphics.Color;
 import android.util.Size;
 
 import com.qualcomm.robotcore.hardware.HardwareMap;
+import com.qualcomm.robotcore.util.ElapsedTime;
 
 import org.firstinspires.ftc.robotcore.external.Telemetry;
 import org.firstinspires.ftc.robotcore.external.hardware.camera.WebcamName;
@@ -33,6 +34,10 @@ import java.util.List;
  *     Only one VisionPortal can use "Webcam 1" at a time, so use this when you need both.
  *
  * Call update() once per loop, then read getBalls() / getClosestBall().
+ *
+ * Sound: when a ball comes into view, the Driver Station says its color out loud
+ * (e.g. "red ball"). On by default; turn off with setSoundEnabled(false).
+ * The Control Hub has no speaker, so speech plays on the Driver Station.
  */
 public class BallDetector {
 
@@ -103,6 +108,16 @@ public class BallDetector {
     private Telemetry telemetry;
 
     private List<Ball> balls = new ArrayList<>();
+
+    // -----------------------------
+    // Sound (spoken on the Driver Station)
+    // -----------------------------
+    private boolean soundEnabled = true;
+    private boolean announcedCurrentBall = false;          // already spoke for the ball in view
+    private final ElapsedTime noBallTimer = new ElapsedTime();
+    private final ElapsedTime announceTimer = new ElapsedTime();
+    private static final double NO_BALL_RESET_MS    = 1000; // ball gone this long -> can announce again
+    private static final double ANNOUNCE_COOLDOWN_MS = 2000; // never speak more often than this
 
     /**
      * Standalone init: opens "Webcam 1" with only the ball processors attached.
@@ -185,6 +200,40 @@ public class BallDetector {
         // Closest (largest) ball first
         Collections.sort(found, (a, b) -> Double.compare(a.distance, b.distance));
         balls = found;
+
+        updateSound();
+    }
+
+    /** Says "<color> ball" once when a ball comes into view (not every frame). */
+    private void updateSound() {
+        if (balls.isEmpty()) {
+            if (noBallTimer.milliseconds() > NO_BALL_RESET_MS) {
+                announcedCurrentBall = false;
+            }
+            return;
+        }
+        noBallTimer.reset();
+
+        if (!announcedCurrentBall && announceTimer.milliseconds() > ANNOUNCE_COOLDOWN_MS) {
+            announce(balls.get(0).color.name().toLowerCase() + " ball");
+            announcedCurrentBall = true;
+        }
+    }
+
+    /** Speaks text on the Driver Station if sound is enabled. */
+    public void announce(String text) {
+        if (soundEnabled && telemetry != null) {
+            telemetry.speak(text);
+            announceTimer.reset();
+        }
+    }
+
+    public void setSoundEnabled(boolean enabled) {
+        this.soundEnabled = enabled;
+    }
+
+    public boolean isSoundEnabled() {
+        return soundEnabled;
     }
 
     private void addBalls(ColorBlobLocatorProcessor processor, BallColor color, List<Ball> out) {

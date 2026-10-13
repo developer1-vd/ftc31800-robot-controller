@@ -78,6 +78,11 @@ public class BallCollector {
         }
     }
 
+    /** Spoken announcements on the Driver Station ("red ball", "got ball"). On by default. */
+    public void setSoundEnabled(boolean enabled) {
+        ballDetector.setSoundEnabled(enabled);
+    }
+
     public void setTargetColor(BallDetector.BallColor color) {
         this.targetColor = color;
     }
@@ -150,6 +155,7 @@ public class BallCollector {
                     drive(APPROACH_DRIVE, 0);
                 } else {
                     capturedBall = true;
+                    ballDetector.announce("got ball");
                     finish();
                 }
                 break;

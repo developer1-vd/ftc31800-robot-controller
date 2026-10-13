@@ -83,6 +83,8 @@ public class RedTeamBotAutoFarShort extends OpMode {
     // If time gets this low while returning/shooting, give up and leave so we still get LEAVE.
     private static final double LEAVE_TIME_MS = 3000;
     private boolean shootingCollectedBall = false;
+    // Driver Station says "red ball", "got ball", etc. Set to false for silence.
+    private static final boolean SOUND_ENABLED = true;
 
     // ------------------- PATH BUILDING -------------------
     public void buildPaths() {
@@ -331,6 +333,7 @@ public class RedTeamBotAutoFarShort extends OpMode {
         follower = Constants.createFollower(hardwareMap);
         ballCollector.init(hardwareMap, telemetry, follower, intake);
         if (SHOOT_COLLECTED_BALL) ballCollector.setStopBeforeEndMs(RETURN_AND_SHOOT_MS);
+        ballCollector.setSoundEnabled(SOUND_ENABLED);
         buildPaths();
         follower.setStartingPose(scorePose);
 

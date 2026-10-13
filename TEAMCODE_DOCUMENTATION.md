@@ -181,6 +181,11 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
   - Sharing the camera with AprilTags: `ballDetector.buildProcessors(telemetry)` then
     `aprilTagWebcam.init(hardwareMap, telemetry, ballDetector.getProcessors())`
   - Call `ballDetector.update()` once per loop
+- **Sound:** the Driver Station speaks the color ("red ball") once when a ball comes into
+  view (2 s cooldown), and "got ball" when autonomous pickup finishes. Uses
+  `telemetry.speak()` because the Control Hub has no speaker. On by default:
+  set `SOUND_ENABLED = false` in an OpMode to start silent, or press gamepad1 **BACK** in
+  `TeamBotTeleop_latest` / `BallDetectionTest` to toggle it during a run.
 - **Tuning:** Distance depends on the camera focal length (default 822 px, typical for a C270).
   Put a ball at a known distance `D`, read its radius `r` in `BallDetectionTest`, then call
   `setFocalLengthPx(D * 2 * r / 2.9)` (2.9 in is the default ball diameter; change it with

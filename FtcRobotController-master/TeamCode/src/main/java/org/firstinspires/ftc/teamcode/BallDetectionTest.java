@@ -14,6 +14,7 @@ import org.firstinspires.ftc.teamcode.mechanisms.BallDetector;
  * - Mecanum drive on gamepad1.
  * - Hold gamepad1 LEFT BUMPER to auto-turn toward the closest ball.
  *   Hold X / B / Y for the closest BLUE / RED / YELLOW ball (matches the button colors).
+ * - Driver Station says the ball color when one comes into view; gamepad1 BACK mutes/unmutes.
  *
  * Also use this to tune BallDetector: check radius/distance at known distances
  * and adjust the focal length and blob filters.
@@ -33,6 +34,10 @@ public class BallDetectionTest extends OpMode {
     private static final double MAX_AUTO_TURN  = 0.4;
     private static final double AIM_TOLERANCE  = 2.0;  // degrees
 
+    // Spoken ball announcements; set to false to start silent. gamepad1 BACK toggles.
+    private static final boolean SOUND_ENABLED = true;
+    private boolean lastSoundToggle = false;
+
     @Override
     public void init() {
         frontLeft  = getMotor("left_front_drive");
@@ -46,6 +51,7 @@ public class BallDetectionTest extends OpMode {
         if (backRight  != null) backRight.setDirection(DcMotor.Direction.FORWARD);
 
         ballDetector.init(hardwareMap, telemetry);
+        ballDetector.setSoundEnabled(SOUND_ENABLED);
 
         telemetry.addLine("Ball detector ready. Hold LB to aim at closest ball.");
     }
@@ -60,6 +66,13 @@ public class BallDetectionTest extends OpMode {
     @Override
     public void loop() {
         ballDetector.update();
+
+        // Sound on/off: gamepad1 BACK (one toggle per press)
+        if (gamepad1.back && !lastSoundToggle) {
+            ballDetector.setSoundEnabled(!ballDetector.isSoundEnabled());
+            telemetry.speak(ballDetector.isSoundEnabled() ? "sound on" : "sound off");
+        }
+        lastSoundToggle = gamepad1.back;
 
         double y  = -gamepad1.left_stick_y;   // forward = +1
         double x  =  gamepad1.left_stick_x;   // strafe right = +1
@@ -102,6 +115,7 @@ public class BallDetectionTest extends OpMode {
         if (frontRight != null) frontRight.setPower(frPower / max);
         if (backRight  != null) backRight.setPower(brPower / max);
 
+        telemetry.addData("Sound", ballDetector.isSoundEnabled() ? "ON (BACK to mute)" : "OFF (BACK to unmute)");
         ballDetector.displayTelemetry();
         telemetry.update();
     }
