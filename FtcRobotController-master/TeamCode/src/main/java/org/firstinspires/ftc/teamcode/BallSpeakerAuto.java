@@ -1,5 +1,6 @@
 package org.firstinspires.ftc.teamcode;
 
+import com.qualcomm.hardware.gobilda.GoBildaPinpointDriver;
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.hardware.DcMotor;
@@ -10,6 +11,8 @@ import com.qualcomm.robotcore.util.Range;
 import org.firstinspires.ftc.teamcode.mechanisms.AprilTagWebcam;
 import org.firstinspires.ftc.teamcode.mechanisms.BallDetector;
 import org.firstinspires.ftc.teamcode.mechanisms.FeederLauncher;
+import org.firstinspires.ftc.teamcode.mechanisms.PinpointOdometry;
+import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
 
 /**
@@ -25,6 +28,8 @@ import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
  * - + "launcher" motor and feeder servos: when full (or holding balls with none left in
  *   view), turns until it sees a goal AprilTag (20 blue / 24 red), lines up in the same
  *   shoot zone as TeamBotTeleop_latest (36 in, -3 deg), shoots, then collects again.
+ * - + "pinpoint" odometry: after shooting, drives back to where it started (position and
+ *   heading), says "home", and stops.
  *
  * The robot never moves during INIT, and stops when no ball is in view.
  * Assumes the camera and intake both face the FRONT of the robot.
@@ -86,7 +91,22 @@ public class BallSpeakerAuto extends OpMode {
     private static final double SHOT_DELAY_MS         = 2000;   // between shots (same as the autos)
     private static final double SHOOT_TIMEOUT_MS      = 15000;  // safety: give up a stuck shot sequence
 
-    private enum State { SEEK, CAPTURE, SETTLE, FIND_GOAL, LINE_UP, SHOOT, FULL }
+    // Drive back to the starting spot after shooting (needs the "pinpoint" odometry computer).
+    // Set to false to keep collecting and shooting instead.
+    private static final boolean RETURN_TO_START = true;
+    // Pinpoint pod setup, same as pedroPathing/Constants.java (forwardPodY = 0, strafePodX = -2)
+    private static final double PINPOINT_X_OFFSET_IN = 0.0;
+    private static final double PINPOINT_Y_OFFSET_IN = -2.0;
+    // Return-to-start driving
+    private static final double HOME_DRIVE_GAIN    = 0.04;   // power per inch of distance left
+    private static final double HOME_TURN_GAIN     = 0.02;   // power per degree of heading left
+    private static final double HOME_MAX_POWER     = 0.4;
+    private static final double HOME_MIN_POWER     = 0.1;
+    private static final double HOME_POSITION_TOL_IN = 2.0;
+    private static final double HOME_HEADING_TOL_DEG = 3.0;
+    private static final double HOME_TIMEOUT_MS    = 10000;  // safety: stop trying after this
+
+    private enum State { SEEK, CAPTURE, SETTLE, FIND_GOAL, LINE_UP, SHOOT, RETURN_HOME, DONE, FULL }
     private enum ShotStep { FEED, FIRE, WAIT_LAUNCHED, DELAY }
     private State state = State.SEEK;
     private final ElapsedTime stateTimer = new ElapsedTime();
@@ -114,6 +134,7 @@ public class BallSpeakerAuto extends OpMode {
     private DcMotor backRight  = null;
     private DcMotor intake     = null;
     private Servo   arm        = null;
+    private PinpointOdometry odometry = null;   // null if no "pinpoint" configured
     private boolean hasDrive   = false;
     private boolean hasLauncher = false;
 
@@ -145,6 +166,15 @@ public class BallSpeakerAuto extends OpMode {
             rightLauncher.init(hardwareMap, telemetry, "launcher", "feederServoRight");
         }
         try {
+            // Start pose (0, 0, 0) = wherever the robot is when Play is pressed
+            odometry = new PinpointOdometry(hardwareMap, 0, 0, 0,
+                    PINPOINT_X_OFFSET_IN, PINPOINT_Y_OFFSET_IN,
+                    GoBildaPinpointDriver.EncoderDirection.REVERSED,
+                    GoBildaPinpointDriver.EncoderDirection.REVERSED);
+        } catch (Exception e) {
+            odometry = null;
+        }
+        try {
             arm = hardwareMap.get(Servo.class, "armServo");
             arm.scaleRange(0.2, 0.8);   // same range as the autos
         } catch (Exception e) {
@@ -172,6 +202,7 @@ public class BallSpeakerAuto extends OpMode {
     @Override
     public void start() {
         if (arm != null && canShoot()) arm.setPosition(SHOOT_ARM_POSITION);
+        if (odometry != null) odometry.setPose(0, 0, 0);   // remember this spot as "start"
         lastBallSeenTimer.reset();
     }
 
@@ -179,6 +210,7 @@ public class BallSpeakerAuto extends OpMode {
     public void loop() {
         ballDetector.update();
         aprilTagWebcam.update();
+        if (odometry != null) odometry.update();
         if (ballDetector.hasBall()) lastBallSeenTimer.reset();
         String status;
 
@@ -221,6 +253,16 @@ public class BallSpeakerAuto extends OpMode {
 
             case SHOOT:
                 status = shoot();
+                break;
+
+            case RETURN_HOME:
+                status = returnHome();
+                break;
+
+            case DONE:
+                setDrivePower(0, 0);
+                setIntake(0);
+                status = "back at start - done";
                 break;
 
             case FULL:
@@ -429,7 +471,50 @@ public class BallSpeakerAuto extends OpMode {
         rightLauncher.stop();
         ballsCollected = 0;
         lastBallSeenTimer.reset();
-        setState(State.SEEK);
+        setState(canReturnHome() ? State.RETURN_HOME : State.SEEK);
+    }
+
+    // -------------------------------------------------
+    // Return to start (Pinpoint odometry)
+    // -------------------------------------------------
+
+    /** Drive straight back to (0, 0) and turn to heading 0, using mecanum strafing. */
+    private String returnHome() {
+        double x = odometry.getX();              // inches, + = forward of start
+        double y = odometry.getY();              // inches, + = left of start
+        double heading = odometry.getHeadingDeg();
+        double distance = Math.hypot(x, y);
+        double headingError = AngleUnit.normalizeDegrees(0 - heading);   // + = need to turn LEFT
+
+        if ((distance <= HOME_POSITION_TOL_IN && Math.abs(headingError) <= HOME_HEADING_TOL_DEG)
+                || stateTimer.milliseconds() > HOME_TIMEOUT_MS) {
+            setDrivePower(0, 0, 0);
+            ballDetector.announce("home");
+            setState(State.DONE);
+            return "back at start";
+        }
+
+        // Field-frame error to start, rotated into the robot's frame
+        double h = Math.toRadians(heading);
+        double dx = -x, dy = -y;
+        double forwardErr = dx * Math.cos(h) + dy * Math.sin(h);    // + = start is ahead
+        double leftErr    = -dx * Math.sin(h) + dy * Math.cos(h);   // + = start is to the left
+
+        double forward = 0, strafeRight = 0;
+        if (distance > HOME_POSITION_TOL_IN) {
+            double speed = Range.clip(distance * HOME_DRIVE_GAIN, HOME_MIN_POWER, HOME_MAX_POWER);
+            forward     = speed * forwardErr / distance;
+            strafeRight = speed * -leftErr / distance;
+        }
+        double turn = Math.abs(headingError) > HOME_HEADING_TOL_DEG
+                ? Range.clip(-headingError * HOME_TURN_GAIN, -MAX_TURN, MAX_TURN)   // + turn = right
+                : 0;
+        setDrivePower(forward, strafeRight, turn);
+        return String.format("returning to start: %.0f in, %.0f deg away", distance, headingError);
+    }
+
+    private boolean canReturnHome() {
+        return RETURN_TO_START && odometry != null && hasDrive;
     }
 
     /** The goal tag to shoot at (GOAL_TAG_ID, or the closer of 20/24 when it is 0). */
@@ -462,6 +547,12 @@ public class BallSpeakerAuto extends OpMode {
         telemetry.addData("Drive", hasDrive ? "connected" : "none (camera-only)");
         telemetry.addData("Intake", intake != null ? "connected" : "none");
         telemetry.addData("Launcher", hasLauncher ? "connected" : "none");
+        if (odometry != null) {
+            telemetry.addData("Position from start", "x %.1f  y %.1f in  heading %.0f deg",
+                    odometry.getX(), odometry.getY(), odometry.getHeadingDeg());
+        } else {
+            telemetry.addData("Odometry", "none (won't return to start)");
+        }
         if (canPickUp()) {
             telemetry.addData("Balls collected", "%d / %d", ballsCollected, MAX_BALLS);
         }
@@ -469,15 +560,18 @@ public class BallSpeakerAuto extends OpMode {
         telemetry.update();
     }
 
-    /** Mecanum forward + turn (no strafe): left side = forward + turn, right side = forward - turn. */
+    /** Forward + turn, no strafe. turn > 0 = turn right. */
     private void setDrivePower(double forward, double turn) {
-        double max = Math.max(Math.abs(forward) + Math.abs(turn), 1);
-        double left  = (forward + turn) / max;
-        double right = (forward - turn) / max;
-        if (frontLeft  != null) frontLeft.setPower(left);
-        if (backLeft   != null) backLeft.setPower(left);
-        if (frontRight != null) frontRight.setPower(right);
-        if (backRight  != null) backRight.setPower(right);
+        setDrivePower(forward, 0, turn);
+    }
+
+    /** Mecanum drive, same mixing as the teleop: strafeRight > 0 = right, turn > 0 = turn right. */
+    private void setDrivePower(double forward, double strafeRight, double turn) {
+        double max = Math.max(Math.abs(forward) + Math.abs(strafeRight) + Math.abs(turn), 1);
+        if (frontLeft  != null) frontLeft.setPower((forward + strafeRight + turn) / max);
+        if (backLeft   != null) backLeft.setPower((forward - strafeRight + turn) / max);
+        if (frontRight != null) frontRight.setPower((forward - strafeRight - turn) / max);
+        if (backRight  != null) backRight.setPower((forward + strafeRight - turn) / max);
     }
 
     private void setIntake(double power) {
