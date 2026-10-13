@@ -18,6 +18,7 @@ TeamCode/
 │   ├── java/org/firstinspires/ftc/teamcode/
 │   │   ├── mechanisms/              # Robot subsystem implementations
 │   │   │   ├── AprilTagWebcam.java
+│   │   │   ├── BallDetector.java
 │   │   │   ├── FeederLauncher.java
 │   │   │   ├── FlyWheelTuner.java
 │   │   │   ├── PinpointOdometry.java
@@ -35,6 +36,7 @@ TeamCode/
 │   │   │   ├── RedTeamBotAutoFarLong.java
 │   │   │   ├── RedTeamBotAutoFarShort.java
 │   │   │   └── RedTeamBotAutoNearShort.java
+│   │   ├── BallDetectionTest.java
 │   │   ├── DriveTrain_Code.java
 │   │   ├── TeamBotAuto.java
 │   │   ├── TeamBotTeleop.java
@@ -162,6 +164,24 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
 - **Purpose:** Velocity/distance mapping utility
 - Converts RPM to distance metrics for motion control
 
+### 7. **BallDetector** (`mechanisms/BallDetector.java`)
+- **Purpose:** Camera-based detection of purple and green balls (artifacts)
+- **Features:**
+  - Uses the SDK `ColorBlobLocatorProcessor` with `ARTIFACT_PURPLE` / `ARTIFACT_GREEN` color ranges
+  - Filters blobs by area and circularity, fits a circle to each ball
+  - Estimates bearing (deg, + = left, same sign as AprilTag bearing) and distance (in)
+  - `getClosestBall()` / `getClosestBall(color)` helpers for aiming and intake logic
+- **Hardware:** "Webcam 1" at 640x480
+- **Usage:**
+  - Standalone: `ballDetector.init(hardwareMap, telemetry)`
+  - Sharing the camera with AprilTags: `ballDetector.buildProcessors(telemetry)` then
+    `aprilTagWebcam.init(hardwareMap, telemetry, ballDetector.getProcessors())`
+  - Call `ballDetector.update()` once per loop
+- **Tuning:** Distance depends on the camera focal length (default 822 px, typical for a C270).
+  Put a ball at a known distance `D`, read its radius `r` in `BallDetectionTest`, then call
+  `setFocalLengthPx(D * 2 * r / 5.0)`. Adjust `setContourAreaRange` / `setMinCircularity` if
+  you see false detections.
+
 ---
 
 ## Recent Development History
@@ -231,6 +251,7 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
 | RedTeamBotAutoFarShort | Pedro | Enabled | meet3_auto | Red far, short path |
 | BlueTeamBotAutoSimple | Auto | Disabled | - | Simplified blue autonomous |
 | RedTeamBotAutoSimple | Auto | Enabled | - | Simplified red autonomous |
+| BallDetectionTest | TeleOp | Enabled | - | Ball detection telemetry + auto-aim (LB any, X purple, Y green) |
 
 ---
 
@@ -241,6 +262,7 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
 - Range and bearing calculation for alignment
 - RGB indicator feedback based on robot state
 - Tolerance-based shoot-ready detection
+- Color-based ball (artifact) detection with bearing and distance estimates
 
 ### Shooter System
 - Dual-servo feeder with synchronized pushing

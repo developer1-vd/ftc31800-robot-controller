@@ -9,6 +9,7 @@ import org.firstinspires.ftc.robotcore.external.hardware.camera.WebcamName;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.vision.VisionPortal;
+import org.firstinspires.ftc.vision.VisionProcessor;
 import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
 import org.firstinspires.ftc.vision.apriltag.AprilTagLibrary;
 import org.firstinspires.ftc.vision.apriltag.AprilTagProcessor;
@@ -41,6 +42,14 @@ public class AprilTagWebcam {
      * Initializes the webcam, tag library, and AprilTag detection pipeline.
      */
     public void init(HardwareMap hwMap, Telemetry telemetry) {
+        init(hwMap, telemetry, new VisionProcessor[0]);
+    }
+
+    /**
+     * Same as init(), but also attaches extra processors (e.g. BallDetector.getProcessors())
+     * to the same camera, since only one VisionPortal can use the webcam at a time.
+     */
+    public void init(HardwareMap hwMap, Telemetry telemetry, VisionProcessor... extraProcessors) {
         this.telemetry = telemetry;
 
         // Build a custom AprilTag library (defines IDs, names, and tag sizes)
@@ -71,6 +80,7 @@ public class AprilTagWebcam {
                 .setCamera(hwMap.get(WebcamName.class, "Webcam 1"))
                 .setCameraResolution(new Size(640, 480))   // Camera resolution
                 .addProcessor(aprilTagProcessor)
+                .addProcessors(extraProcessors)
                 .build();
     }
     
