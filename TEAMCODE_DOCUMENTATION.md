@@ -188,7 +188,8 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
   `TeamBotTeleop_latest` / `BallDetectionTest` to toggle it during a run.
 - **Camera-only robot:** with just a Control Hub, battery, and "Webcam 1" (no motors/servos),
   `BallDetectionTest` and `TeamBotTeleop_latest` still run: they detect balls and speak the color,
-  including during INIT. The Pedro autos need the drivetrain and won't start without it.
+  including during INIT. For an Autonomous option, use `BallSpeakerAuto`. The Pedro autos need
+  the drivetrain and won't start without it.
 - **Tuning:** Distance depends on the camera focal length (default 822 px, typical for a C270).
   Put a ball at a known distance `D`, read its radius `r` in `BallDetectionTest`, then call
   `setFocalLengthPx(D * 2 * r / 2.9)` (2.9 in is the default ball diameter; change it with
@@ -283,6 +284,7 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
 | RedTeamBotAutoFarShort | Pedro | Enabled | meet3_auto | Red far, short path |
 | BlueTeamBotAutoSimple | Auto | Disabled | - | Simplified blue autonomous |
 | RedTeamBotAutoSimple | Auto | Enabled | - | Simplified red autonomous |
+| BallSpeakerAuto | Auto | Enabled | - | Camera-only: detects balls and speaks the color (no motors needed) |
 | BallDetectionTest | TeleOp | Enabled | - | Ball detection telemetry + auto-aim (LB any, X blue, B red, Y yellow) |
 
 ---
