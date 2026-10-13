@@ -165,9 +165,10 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
 - Converts RPM to distance metrics for motion control
 
 ### 7. **BallDetector** (`mechanisms/BallDetector.java`)
-- **Purpose:** Camera-based detection of purple and green balls (artifacts)
+- **Purpose:** Camera-based detection of yellow, blue, and red plastic (wiffle-style) balls
 - **Features:**
-  - Uses the SDK `ColorBlobLocatorProcessor` with `ARTIFACT_PURPLE` / `ARTIFACT_GREEN` color ranges
+  - Uses the SDK `ColorBlobLocatorProcessor` with the built-in `YELLOW` / `BLUE` / `RED` color ranges
+  - Fills in the ball holes (blur + closing) so each ball is one round blob
   - Filters blobs by area and circularity, fits a circle to each ball
   - Estimates bearing (deg, + = left, same sign as AprilTag bearing) and distance (in)
   - `getClosestBall()` / `getClosestBall(color)` helpers for aiming and intake logic
@@ -179,7 +180,8 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
   - Call `ballDetector.update()` once per loop
 - **Tuning:** Distance depends on the camera focal length (default 822 px, typical for a C270).
   Put a ball at a known distance `D`, read its radius `r` in `BallDetectionTest`, then call
-  `setFocalLengthPx(D * 2 * r / 5.0)`. Adjust `setContourAreaRange` / `setMinCircularity` if
+  `setFocalLengthPx(D * 2 * r / 2.9)` (2.9 in is the default ball diameter; change it with
+  `setBallDiameter()` if your balls measure differently). Adjust `setContourAreaRange` / `setMinCircularity` if
   you see false detections.
 
 ---
@@ -251,7 +253,7 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
 | RedTeamBotAutoFarShort | Pedro | Enabled | meet3_auto | Red far, short path |
 | BlueTeamBotAutoSimple | Auto | Disabled | - | Simplified blue autonomous |
 | RedTeamBotAutoSimple | Auto | Enabled | - | Simplified red autonomous |
-| BallDetectionTest | TeleOp | Enabled | - | Ball detection telemetry + auto-aim (LB any, X purple, Y green) |
+| BallDetectionTest | TeleOp | Enabled | - | Ball detection telemetry + auto-aim (LB any, X blue, B red, Y yellow) |
 
 ---
 
@@ -262,7 +264,7 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
 - Range and bearing calculation for alignment
 - RGB indicator feedback based on robot state
 - Tolerance-based shoot-ready detection
-- Color-based ball (artifact) detection with bearing and distance estimates
+- Color-based ball detection (yellow / blue / red) with bearing and distance estimates
 
 ### Shooter System
 - Dual-servo feeder with synchronized pushing

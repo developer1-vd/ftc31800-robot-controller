@@ -13,7 +13,7 @@ import org.firstinspires.ftc.teamcode.mechanisms.BallDetector;
  * - Shows every detected ball (color, distance, bearing) on telemetry.
  * - Mecanum drive on gamepad1.
  * - Hold gamepad1 LEFT BUMPER to auto-turn toward the closest ball
- *   (X = closest purple only, Y = closest green only).
+ *   Hold X / B / Y for the closest BLUE / RED / YELLOW ball (matches the button colors).
  *
  * Also use this to tune BallDetector: check radius/distance at known distances
  * and adjust the focal length and blob filters.
@@ -68,14 +68,16 @@ public class BallDetectionTest extends OpMode {
         // Pick a target ball
         BallDetector.Ball target = null;
         if (gamepad1.x) {
-            target = ballDetector.getClosestBall(BallDetector.BallColor.PURPLE);
+            target = ballDetector.getClosestBall(BallDetector.BallColor.BLUE);
+        } else if (gamepad1.b) {
+            target = ballDetector.getClosestBall(BallDetector.BallColor.RED);
         } else if (gamepad1.y) {
-            target = ballDetector.getClosestBall(BallDetector.BallColor.GREEN);
+            target = ballDetector.getClosestBall(BallDetector.BallColor.YELLOW);
         } else if (gamepad1.left_bumper) {
             target = ballDetector.getClosestBall();
         }
 
-        boolean aiming = gamepad1.left_bumper || gamepad1.x || gamepad1.y;
+        boolean aiming = gamepad1.left_bumper || gamepad1.x || gamepad1.b || gamepad1.y;
         if (aiming && target != null) {
             // bearing > 0 means ball is to the LEFT, so turn left (negative rx)
             if (Math.abs(target.bearing) > AIM_TOLERANCE) {

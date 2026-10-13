@@ -16,12 +16,14 @@ import org.firstinspires.ftc.vision.opencv.ImageRegion;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumMap;
 import java.util.List;
 
 /**
- * Camera-based ball (artifact) detection using the FTC SDK color blob locator.
+ * Camera-based ball detection using the FTC SDK color blob locator.
  *
- * Finds purple and green balls in the camera image, fits a circle to each one,
+ * Finds yellow, blue, and red plastic (wiffle-style) balls in the camera image,
+ * fits a circle to each one (the holes are filled in by the blob cleanup step),
  * and estimates the horizontal angle (bearing) and distance to the ball.
  *
  * Two ways to use it:
@@ -34,7 +36,19 @@ import java.util.List;
  */
 public class BallDetector {
 
-    public enum BallColor { PURPLE, GREEN }
+    public enum BallColor {
+        YELLOW(ColorRange.YELLOW, Color.rgb(255, 255, 0)),
+        BLUE  (ColorRange.BLUE,   Color.rgb(0, 128, 255)),
+        RED   (ColorRange.RED,    Color.rgb(255, 0, 0));
+
+        final ColorRange range;
+        final int drawColor;   // circle color on the camera stream preview
+
+        BallColor(ColorRange range, int drawColor) {
+            this.range = range;
+            this.drawColor = drawColor;
+        }
+    }
 
     /**
      * A single detected ball for the current frame.
@@ -46,7 +60,7 @@ public class BallDetector {
         public final double radius;       // pixels
         public final double circularity;  // 0..1, 1 = perfect circle
         public final double bearing;      // degrees, + = ball is LEFT of center (same sign as AprilTag bearing)
-        public final double distance;     // inches, approximate (see FOCAL_LENGTH_PX)
+        public final double distance;     // inches, approximate (see focalLengthPx)
 
         Ball(BallColor color, double centerX, double centerY, double radius,
              double circularity, double bearing, double distance) {
@@ -67,13 +81,14 @@ public class BallDetector {
     public static final int IMAGE_WIDTH  = 640;
     public static final int IMAGE_HEIGHT = 480;
 
-    // Ball diameter in inches (DECODE artifacts are 5 in).
-    private static final double BALL_DIAMETER_IN = 5.0;
+    // Ball diameter in inches. These plastic practice balls are about 2.9 in;
+    // measure yours and call setBallDiameter() if it differs.
+    private double ballDiameterIn = 2.9;
 
     // Camera focal length in pixels at IMAGE_WIDTH x IMAGE_HEIGHT.
     // ~822 is typical for a Logitech C270 at 640x480. TUNE THIS:
     // place a ball at a known distance D (inches), read its radius r (pixels) from telemetry,
-    // then FOCAL_LENGTH_PX = D * 2 * r / BALL_DIAMETER_IN.
+    // then focalLengthPx = D * 2 * r / ballDiameterIn.
     private double focalLengthPx = 822.0;
 
     // -----------------------------
@@ -83,8 +98,7 @@ public class BallDetector {
     private double maxContourArea = 60000;   // pixels^2, ignore huge regions (walls, robots)
     private double minCircularity = 0.55;    // ignore non-round blobs
 
-    private ColorBlobLocatorProcessor purpleProcessor;
-    private ColorBlobLocatorProcessor greenProcessor;
+    private final EnumMap<BallColor, ColorBlobLocatorProcessor> processors = new EnumMap<>(BallColor.class);
     private VisionPortal visionPortal;   // only set when this class owns the camera
     private Telemetry telemetry;
 
@@ -100,7 +114,7 @@ public class BallDetector {
         visionPortal = new VisionPortal.Builder()
                 .setCamera(hwMap.get(WebcamName.class, "Webcam 1"))
                 .setCameraResolution(new Size(IMAGE_WIDTH, IMAGE_HEIGHT))
-                .addProcessors(purpleProcessor, greenProcessor)
+                .addProcessors(getProcessors())
                 .build();
     }
 
@@ -114,18 +128,20 @@ public class BallDetector {
     }
 
     private void buildProcessors() {
-        purpleProcessor = buildProcessor(ColorRange.ARTIFACT_PURPLE, Color.rgb(255, 0, 255));
-        greenProcessor  = buildProcessor(ColorRange.ARTIFACT_GREEN,  Color.rgb(0, 255, 0));
+        processors.clear();
+        for (BallColor color : BallColor.values()) {
+            processors.put(color, buildProcessor(color));
+        }
     }
 
-    private ColorBlobLocatorProcessor buildProcessor(ColorRange range, int drawColor) {
+    private ColorBlobLocatorProcessor buildProcessor(BallColor color) {
         return new ColorBlobLocatorProcessor.Builder()
-                .setTargetColorRange(range)
+                .setTargetColorRange(color.range)
                 .setContourMode(ColorBlobLocatorProcessor.ContourMode.EXTERNAL_ONLY)
                 .setRoi(ImageRegion.entireFrame())
                 .setDrawContours(true)
                 .setBoxFitColor(0)               // don't draw rectangles
-                .setCircleFitColor(drawColor)    // draw fitted circle on the stream preview
+                .setCircleFitColor(color.drawColor)    // draw fitted circle on the stream preview
                 .setBlurSize(5)
                 .setDilateSize(15)               // fill divots (balls have holes)
                 .setErodeSize(15)
@@ -137,7 +153,11 @@ public class BallDetector {
      * Processors to attach to a shared VisionPortal. Call buildProcessors(telemetry) first.
      */
     public VisionProcessor[] getProcessors() {
-        return new VisionProcessor[] { purpleProcessor, greenProcessor };
+        return processors.values().toArray(new VisionProcessor[0]);
+    }
+
+    public void setBallDiameter(double inches) {
+        this.ballDiameterIn = inches;
     }
 
     public void setFocalLengthPx(double focalLengthPx) {
@@ -158,8 +178,9 @@ public class BallDetector {
      */
     public void update() {
         List<Ball> found = new ArrayList<>();
-        addBalls(purpleProcessor, BallColor.PURPLE, found);
-        addBalls(greenProcessor, BallColor.GREEN, found);
+        for (BallColor color : BallColor.values()) {
+            addBalls(processors.get(color), color, found);
+        }
 
         // Closest (largest) ball first
         Collections.sort(found, (a, b) -> Double.compare(a.distance, b.distance));
@@ -203,7 +224,7 @@ public class BallDetector {
      * Pinhole camera estimate: distance = realDiameter * focal / pixelDiameter.
      */
     private double radiusToDistance(double radiusPx) {
-        return (BALL_DIAMETER_IN * focalLengthPx) / (2.0 * radiusPx);
+        return (ballDiameterIn * focalLengthPx) / (2.0 * radiusPx);
     }
 
     /** All balls in the latest frame, closest first. */
