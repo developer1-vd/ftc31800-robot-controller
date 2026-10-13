@@ -79,6 +79,9 @@ TeamCode/
 - **Status:** Latest development version
 - **Last Updated:** January 11, 2026
 - **Changes:** Added ramp mechanics and flywheel improvements
+- **Ball auto-aim (gamepad1, hold):** LB = closest ball, X = blue, B = red, Y = yellow.
+  Overrides rotation only; the driver keeps forward/strafe. Uses `BallDetector` on the same
+  camera as AprilTags. Closest ball is shown under `== BALLS ==` in telemetry.
 - **Notable Updates:** 146 insertions, 51 deletions from previous version
 
 #### `TeamBotTeleop_analytics.java`

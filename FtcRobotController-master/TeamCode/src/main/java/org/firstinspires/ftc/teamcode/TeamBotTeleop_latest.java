@@ -8,8 +8,10 @@ import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
 
 import com.qualcomm.robotcore.hardware.Servo;
+import com.qualcomm.robotcore.util.Range;
 import org.firstinspires.ftc.teamcode.mechanisms.RPM_per_dist;
 import org.firstinspires.ftc.teamcode.mechanisms.AprilTagWebcam;
+import org.firstinspires.ftc.teamcode.mechanisms.BallDetector;
 import org.firstinspires.ftc.teamcode.mechanisms.RGBIndicatorLight;
 import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
 
@@ -23,6 +25,14 @@ public class TeamBotTeleop_latest extends OpMode {
     private final RGBIndicatorLight light = new RGBIndicatorLight();
 
     private final RPM_per_dist distToRPM = new RPM_per_dist();
+
+    // Ball detection (shares "Webcam 1" with AprilTags)
+    private final BallDetector ballDetector = new BallDetector();
+
+    // Ball auto-aim: proportional turn gain (power per degree), limits
+    private static final double BALL_TURN_GAIN     = 0.02;
+    private static final double BALL_MAX_AUTO_TURN = 0.4;
+    private static final double BALL_AIM_TOLERANCE = 2.0;  // degrees
 
     // Debounce for shoot-ready indicator
     private int shootInRangeCount = 0;
@@ -218,8 +228,9 @@ public class TeamBotTeleop_latest extends OpMode {
         }
 
 
-        // AprilTag
-        aprilTagWebcam.init(hardwareMap, telemetry);
+        // AprilTag + ball detection on the same camera
+        ballDetector.buildProcessors(telemetry);
+        aprilTagWebcam.init(hardwareMap, telemetry, ballDetector.getProcessors());
 
         // ~1 foot (12 inches) shoot window
         aprilTagWebcam.setTargetRange(targetDist);
@@ -285,6 +296,35 @@ public class TeamBotTeleop_latest extends OpMode {
         double y  = -gamepad1.left_stick_y;   // forward = +1
         double x  =  gamepad1.left_stick_x;   // strafe right = +1
         double rx =  gamepad1.right_stick_x;  // rotate right = +1
+
+        //----------------------------------
+        // 1B. BALL AUTO-AIM (gamepad1, hold to turn toward a ball)
+        // LB = closest ball, X = blue, B = red, Y = yellow
+        // Driver keeps forward/strafe control; only rotation is overridden.
+        //----------------------------------
+        ballDetector.update();
+
+        BallDetector.Ball ballTarget = null;
+        if (gamepad1.x) {
+            ballTarget = ballDetector.getClosestBall(BallDetector.BallColor.BLUE);
+        } else if (gamepad1.b) {
+            ballTarget = ballDetector.getClosestBall(BallDetector.BallColor.RED);
+        } else if (gamepad1.y) {
+            ballTarget = ballDetector.getClosestBall(BallDetector.BallColor.YELLOW);
+        } else if (gamepad1.left_bumper) {
+            ballTarget = ballDetector.getClosestBall();
+        }
+
+        boolean ballAiming = gamepad1.left_bumper || gamepad1.x || gamepad1.b || gamepad1.y;
+        if (ballAiming && ballTarget != null) {
+            // bearing > 0 means ball is to the LEFT, so turn left (negative rx)
+            if (Math.abs(ballTarget.bearing) > BALL_AIM_TOLERANCE) {
+                rx = Range.clip(-ballTarget.bearing * BALL_TURN_GAIN,
+                        -BALL_MAX_AUTO_TURN, BALL_MAX_AUTO_TURN);
+            } else {
+                rx = 0;
+            }
+        }
 
         double flPower = y + x + rx;
         double blPower = y - x + rx;
@@ -537,6 +577,20 @@ public class TeamBotTeleop_latest extends OpMode {
 //        telemetry.addData("fl/br/bl/fr", "%.2f %.2f %.2f %.2f",
 //                flPower, brPower, blPower, frPower);
 
+        telemetry.addLine("== BALLS ==");
+        BallDetector.Ball closestBall = ballDetector.getClosestBall();
+        if (closestBall != null) {
+            telemetry.addData("Closest Ball", "%s  %.1f in  %.1f deg",
+                    closestBall.color, closestBall.distance, closestBall.bearing);
+        } else {
+            telemetry.addData("Closest Ball", "none");
+        }
+        if (ballAiming) {
+            telemetry.addData("Ball Aim", ballTarget != null
+                    ? "AIMING at " + ballTarget.color
+                    : "no matching ball in view");
+        }
+
         telemetry.addLine("== INTAKE ==");
 //        telemetry.addData("intakePower", "%.2f", intakePower);
 //        telemetry.addData("intakePresent", hasIntake);
@@ -657,5 +711,11 @@ public class TeamBotTeleop_latest extends OpMode {
         // Start flywheels on launchers (not ready to shoot)
         double targetTPS = rpmToTicksPerSec(FLYWHEEL_TARGET_RPM, FLYWHEEL_TPR);
         flywheel.setVelocity(targetTPS);
+    }
+
+    @Override
+    public void stop() {
+        // Closes the shared camera (AprilTags + ball detection)
+        aprilTagWebcam.stop();
     }
 }

@@ -12,7 +12,7 @@ import org.firstinspires.ftc.teamcode.mechanisms.BallDetector;
  *
  * - Shows every detected ball (color, distance, bearing) on telemetry.
  * - Mecanum drive on gamepad1.
- * - Hold gamepad1 LEFT BUMPER to auto-turn toward the closest ball
+ * - Hold gamepad1 LEFT BUMPER to auto-turn toward the closest ball.
  *   Hold X / B / Y for the closest BLUE / RED / YELLOW ball (matches the button colors).
  *
  * Also use this to tune BallDetector: check radius/distance at known distances
