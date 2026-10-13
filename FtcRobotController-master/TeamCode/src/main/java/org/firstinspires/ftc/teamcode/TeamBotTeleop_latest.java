@@ -721,10 +721,20 @@ public class TeamBotTeleop_latest extends OpMode {
 
 
     @Override
+    public void init_loop() {
+        // Detect and announce balls while waiting for Play (works with only a camera attached)
+        ballDetector.update();
+        ballDetector.displayTelemetry();
+        telemetry.update();
+    }
+
+    @Override
     public void start() {
         // Start flywheels on launchers (not ready to shoot)
-        double targetTPS = rpmToTicksPerSec(FLYWHEEL_TARGET_RPM, FLYWHEEL_TPR);
-        flywheel.setVelocity(targetTPS);
+        if (hasFlywheel) {
+            double targetTPS = rpmToTicksPerSec(FLYWHEEL_TARGET_RPM, FLYWHEEL_TPR);
+            flywheel.setVelocity(targetTPS);
+        }
     }
 
     @Override

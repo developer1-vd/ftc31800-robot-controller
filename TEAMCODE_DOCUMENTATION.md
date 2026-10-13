@@ -186,6 +186,9 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
   `telemetry.speak()` because the Control Hub has no speaker. On by default:
   set `SOUND_ENABLED = false` in an OpMode to start silent, or press gamepad1 **BACK** in
   `TeamBotTeleop_latest` / `BallDetectionTest` to toggle it during a run.
+- **Camera-only robot:** with just a Control Hub, battery, and "Webcam 1" (no motors/servos),
+  `BallDetectionTest` and `TeamBotTeleop_latest` still run: they detect balls and speak the color,
+  including during INIT. The Pedro autos need the drivetrain and won't start without it.
 - **Tuning:** Distance depends on the camera focal length (default 822 px, typical for a C270).
   Put a ball at a known distance `D`, read its radius `r` in `BallDetectionTest`, then call
   `setFocalLengthPx(D * 2 * r / 2.9)` (2.9 in is the default ball diameter; change it with

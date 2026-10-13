@@ -53,7 +53,11 @@ public class BallDetectionTest extends OpMode {
         ballDetector.init(hardwareMap, telemetry);
         ballDetector.setSoundEnabled(SOUND_ENABLED);
 
-        telemetry.addLine("Ball detector ready. Hold LB to aim at closest ball.");
+        if (frontLeft == null && frontRight == null && backLeft == null && backRight == null) {
+            telemetry.addLine("No drive motors found - camera-only mode (detects and speaks).");
+        } else {
+            telemetry.addLine("Ball detector ready. Hold LB to aim at closest ball.");
+        }
     }
 
     @Override
