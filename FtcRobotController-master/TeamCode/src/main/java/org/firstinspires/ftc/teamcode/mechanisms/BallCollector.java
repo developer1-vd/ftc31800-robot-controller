@@ -21,6 +21,7 @@ import org.firstinspires.ftc.robotcore.external.Telemetry;
  *   init():  ballCollector.init(hardwareMap, telemetry, follower, intake);
  *   when the path is done:  ballCollector.start();
  *   loop():  ballCollector.update(msLeftInAuto);  then check ballCollector.isDone()
+ *            and ballCollector.capturedBall() to decide whether to go shoot it
  *   stop():  ballCollector.stop();
  *
  * Assumes the camera and intake both face the FRONT of the robot.
@@ -40,7 +41,7 @@ public class BallCollector {
     private static final double CAPTURE_MS          = 700;   // drive straight this long to swallow it
     private static final double LOST_BALL_MS        = 500;   // ball unseen this long -> search again
     private static final double SEARCH_TIMEOUT_MS   = 4000;  // give up if nothing found
-    private static final double STOP_BEFORE_END_MS  = 1000;  // stop with this much auto time left
+    private double stopBeforeEndMs = 1000;                    // stop with this much auto time left
 
     // Intake power that pulls balls IN (matches gamepad2 A in TeamBotTeleop_latest).
     // Flip the sign if the intake spits balls out.
@@ -53,6 +54,7 @@ public class BallCollector {
 
     private State state = State.IDLE;
     private boolean cameraOk = false;
+    private boolean capturedBall = false;
     private final ElapsedTime stateTimer = new ElapsedTime();
     private final ElapsedTime lastSeenTimer = new ElapsedTime();
 
@@ -80,12 +82,18 @@ public class BallCollector {
         this.targetColor = color;
     }
 
+    /** Give up on collecting once only this much auto time is left (e.g. to save time to shoot). */
+    public void setStopBeforeEndMs(double ms) {
+        this.stopBeforeEndMs = ms;
+    }
+
     /** Begin searching for a ball. The Pedro path must be finished first. */
     public void start() {
         if (!cameraOk) {
             setState(State.DONE);
             return;
         }
+        capturedBall = false;
         follower.startTeleopDrive();
         setState(State.SEARCH);
     }
@@ -103,7 +111,7 @@ public class BallCollector {
                 : ballDetector.getClosestBall(targetColor);
         if (ball != null) lastSeenTimer.reset();
 
-        if (msLeftInAuto < STOP_BEFORE_END_MS) {
+        if (msLeftInAuto < stopBeforeEndMs) {
             finish();
             return;
         }
@@ -141,6 +149,7 @@ public class BallCollector {
                 if (stateTimer.milliseconds() < CAPTURE_MS) {
                     drive(APPROACH_DRIVE, 0);
                 } else {
+                    capturedBall = true;
                     finish();
                 }
                 break;
@@ -158,6 +167,14 @@ public class BallCollector {
 
     public boolean isDone() {
         return state == State.DONE;
+    }
+
+    /**
+     * True if the robot drove all the way onto a ball (finished CAPTURE).
+     * There is no ball sensor, so this means "probably has a ball".
+     */
+    public boolean capturedBall() {
+        return capturedBall;
     }
 
     public State getState() {

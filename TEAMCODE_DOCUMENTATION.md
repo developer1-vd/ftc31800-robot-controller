@@ -248,6 +248,12 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
 - **Used in:** `RedTeamBotAutoNearShort`, `BlueTeamBotAutoNearShort`, `RedTeamBotAutoFarShort`,
   `BlueTeamBotAutoFarShort` (new `COLLECT_BALL` path state after `END`). Turn off per auto with
   `COLLECT_BALL_AFTER_PATH = false`.
+- **Return and shoot:** if a ball was captured, the auto drives straight back to `scorePose`,
+  runs the same INTAKE → SHOOT_2 steps used for the preload (feed, shoot left, 2 s delay, shoot
+  right), then drives back to `endPose` so LEAVE still counts. States: `COLLECT_BALL` →
+  `RETURN_TO_SCORE` → `SHOOT_COLLECTED` → `LEAVE_AGAIN`. Pickup gives up with 10 s left
+  (`RETURN_AND_SHOOT_MS`) to save time for this; if under 3 s remain (`LEAVE_TIME_MS`) the robot
+  skips straight to leaving. Turn off with `SHOOT_COLLECTED_BALL = false`.
 - **Safety:** if "Webcam 1" is missing, pickup is skipped instead of crashing the auto.
 - **Tuning:** speeds, gains, and timeouts are constants at the top of the class.
   `INTAKE_IN_POWER` is 1.0 (same as gamepad2 A in teleop); flip it if the intake spits balls out.
