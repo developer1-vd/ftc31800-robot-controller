@@ -36,6 +36,9 @@ import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
  * Avoiding other robots (AVOID_ROBOTS):
  * - "frontDistance" distance sensor (optional): something closer than OBSTACLE_STOP_IN while
  *   driving forward = robot ahead. Mount it ABOVE ball height so balls don't trigger it.
+ * - Camera (CAMERA_AVOID): a large red/blue alliance-color blob straight ahead and wider than
+ *   ROBOT_CLOSE_WIDTH of the image = robot ahead. Skipped while a goal AprilTag is in view,
+ *   and while lining up on the goal, since the goals are big red/blue shapes too.
  * - Pinpoint odometry: told to drive but not moving for STALL_MS = bumped into something.
  * Either way it stops and waits briefly (the other robot may move), then backs up, turns
  * away (alternating left/right), and goes back to what it was doing.
@@ -134,6 +137,10 @@ public class BallSpeakerAuto extends OpMode {
     private static final double AVOID_BACK_MS        = 500;
     private static final double AVOID_TURN_POWER     = 0.35;
     private static final double AVOID_TURN_MS        = 600;    // roughly a 45-90 degree turn; tune
+    // Camera robot detection
+    private static final boolean CAMERA_AVOID        = true;
+    private static final double ROBOT_CLOSE_WIDTH    = 0.30;   // blob this wide (fraction of image) = close
+    private static final double ROBOT_AHEAD_DEG      = 20.0;   // blob within this angle of center = in our path
 
     private enum State { SEEK, CAPTURE, SETTLE, FIND_GOAL, LINE_UP, SHOOT, RETURN_HOME, AVOID, DONE, FULL }
     private enum AvoidStep { WAIT, BACK_UP, TURN }
@@ -588,13 +595,27 @@ public class BallSpeakerAuto extends OpMode {
             return status;
         }
 
-        boolean robotAhead = lastForward > 0.05 && obstacleAhead();
+        boolean robotAhead = lastForward > 0.05
+                && (obstacleAhead() || (state != State.LINE_UP && robotSeenAhead()));
         boolean bumped = isStalled();
         if (robotAhead || bumped) {
             startAvoid(robotAhead);
             return robotAhead ? "robot ahead - stopping" : "bumped something - stopping";
         }
         return status;
+    }
+
+    /** Camera: a big alliance-color blob in our path (ignored while a goal tag is visible). */
+    private boolean robotSeenAhead() {
+        if (!CAMERA_AVOID) return false;
+        if (aprilTagWebcam.getTagBySpecificId(20) != null
+                || aprilTagWebcam.getTagBySpecificId(24) != null) {
+            return false;   // the big red/blue shape is probably the goal
+        }
+        BallDetector.RobotBlob robot = ballDetector.getLargestRobotBlob();
+        return robot != null
+                && robot.widthFraction >= ROBOT_CLOSE_WIDTH
+                && Math.abs(robot.bearing) <= ROBOT_AHEAD_DEG;
     }
 
     private boolean obstacleAhead() {
@@ -638,7 +659,8 @@ public class BallSpeakerAuto extends OpMode {
             case WAIT:
                 setDrivePower(0, 0, 0);
                 // The other robot moved out of the way: carry on
-                if (avoidBySensor && !obstacleAhead() && avoidTimer.milliseconds() > 300) {
+                if (avoidBySensor && !obstacleAhead() && !robotSeenAhead()
+                        && avoidTimer.milliseconds() > 300) {
                     resumeAfterAvoid();
                     return "path clear";
                 }

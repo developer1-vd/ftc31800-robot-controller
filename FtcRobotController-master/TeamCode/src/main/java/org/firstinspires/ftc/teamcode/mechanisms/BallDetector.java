@@ -15,6 +15,8 @@ import org.firstinspires.ftc.vision.opencv.ColorBlobLocatorProcessor;
 import org.firstinspires.ftc.vision.opencv.ColorRange;
 import org.firstinspires.ftc.vision.opencv.ImageRegion;
 
+import org.opencv.core.Rect;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumMap;
@@ -34,6 +36,11 @@ import java.util.List;
  *     Only one VisionPortal can use "Webcam 1" at a time, so use this when you need both.
  *
  * Call update() once per loop, then read getBalls() / getClosestBall().
+ *
+ * Robots: FTC robots show their alliance color (red/blue signs). Large red/blue blobs that
+ * are not round (not a ball) and not thin lines (not floor tape) are reported by
+ * getRobotBlobs() / getLargestRobotBlob() so an OpMode can steer clear of them. The goals
+ * are also big red/blue shapes, so callers should ignore this while a goal is in view.
  *
  * Sound: when a ball comes into view, the Driver Station says its color out loud
  * (e.g. "red ball"). On by default; turn off with setSoundEnabled(false).
@@ -108,6 +115,29 @@ public class BallDetector {
     private Telemetry telemetry;
 
     private List<Ball> balls = new ArrayList<>();
+
+    /** A large red/blue blob that is probably another robot's alliance-color sign. */
+    public static class RobotBlob {
+        public final BallColor color;
+        public final double centerX;        // pixels
+        public final double centerY;        // pixels
+        public final double widthFraction;  // blob width / image width (bigger = closer)
+        public final double bearing;        // degrees, + = LEFT of center
+
+        RobotBlob(BallColor color, double centerX, double centerY, double widthFraction, double bearing) {
+            this.color = color;
+            this.centerX = centerX;
+            this.centerY = centerY;
+            this.widthFraction = widthFraction;
+            this.bearing = bearing;
+        }
+    }
+
+    // Robot-blob filters (tune on the field)
+    private double minRobotArea = 6000;        // pixels^2; smaller than this is not a robot
+    private double maxRobotAspectRatio = 4.0;  // longer/thinner than this is floor tape, not a robot
+
+    private List<RobotBlob> robotBlobs = new ArrayList<>();
 
     // -----------------------------
     // Sound (spoken on the Driver Station)
@@ -193,9 +223,20 @@ public class BallDetector {
      */
     public void update() {
         List<Ball> found = new ArrayList<>();
+        List<RobotBlob> robots = new ArrayList<>();
         for (BallColor color : BallColor.values()) {
-            addBalls(processors.get(color), color, found);
+            ColorBlobLocatorProcessor processor = processors.get(color);
+            if (processor == null) continue;
+            // getBlobs() returns the processor's own list; copy it so filtering here
+            // doesn't remove blobs another check still needs.
+            List<ColorBlobLocatorProcessor.Blob> blobs = new ArrayList<>(processor.getBlobs());
+            if (color != BallColor.YELLOW) {   // only red/blue are alliance colors
+                addRobots(blobs, color, robots);
+            }
+            addBalls(blobs, color, found);
         }
+        Collections.sort(robots, (a, b) -> Double.compare(b.widthFraction, a.widthFraction));
+        robotBlobs = robots;
 
         // Closest (largest) ball first
         Collections.sort(found, (a, b) -> Double.compare(a.distance, b.distance));
@@ -236,11 +277,7 @@ public class BallDetector {
         return soundEnabled;
     }
 
-    private void addBalls(ColorBlobLocatorProcessor processor, BallColor color, List<Ball> out) {
-        if (processor == null) return;
-
-        List<ColorBlobLocatorProcessor.Blob> blobs = processor.getBlobs();
-
+    private void addBalls(List<ColorBlobLocatorProcessor.Blob> blobs, BallColor color, List<Ball> out) {
         ColorBlobLocatorProcessor.Util.filterByCriteria(
                 ColorBlobLocatorProcessor.BlobCriteria.BY_CONTOUR_AREA,
                 minContourArea, maxContourArea, blobs);
@@ -258,6 +295,37 @@ public class BallDetector {
             out.add(new Ball(color, x, y, r, blob.getCircularity(),
                     pixelToBearing(x), radiusToDistance(r)));
         }
+    }
+
+    private void addRobots(List<ColorBlobLocatorProcessor.Blob> blobs, BallColor color, List<RobotBlob> out) {
+        for (ColorBlobLocatorProcessor.Blob blob : blobs) {
+            if (blob.getContourArea() < minRobotArea) continue;
+            if (blob.getAspectRatio() > maxRobotAspectRatio) continue;          // floor tape
+            boolean looksLikeBall = blob.getCircularity() >= minCircularity
+                    && blob.getContourArea() <= maxContourArea;
+            if (looksLikeBall) continue;
+
+            Rect box = blob.getBoxFit().boundingRect();
+            double centerX = box.x + box.width / 2.0;
+            double centerY = box.y + box.height / 2.0;
+            out.add(new RobotBlob(color, centerX, centerY,
+                    (double) box.width / IMAGE_WIDTH, pixelToBearing(centerX)));
+        }
+    }
+
+    /** Large red/blue non-ball blobs in the latest frame, biggest (closest) first. */
+    public List<RobotBlob> getRobotBlobs() {
+        return robotBlobs;
+    }
+
+    /** Biggest robot-like blob, or null if none. */
+    public RobotBlob getLargestRobotBlob() {
+        return robotBlobs.isEmpty() ? null : robotBlobs.get(0);
+    }
+
+    public void setRobotFilters(double minArea, double maxAspectRatio) {
+        this.minRobotArea = minArea;
+        this.maxRobotAspectRatio = maxAspectRatio;
     }
 
     /**
@@ -304,6 +372,11 @@ public class BallDetector {
         for (Ball ball : balls) {
             telemetry.addLine(String.format("%-6s dist %5.1f in  brg %5.1f deg  r %3d px  circ %.2f",
                     ball.color, ball.distance, ball.bearing, (int) ball.radius, ball.circularity));
+        }
+        RobotBlob robot = getLargestRobotBlob();
+        if (robot != null) {
+            telemetry.addLine(String.format("Robot? %-4s width %2.0f%%  brg %5.1f deg",
+                    robot.color, robot.widthFraction * 100, robot.bearing));
         }
     }
 

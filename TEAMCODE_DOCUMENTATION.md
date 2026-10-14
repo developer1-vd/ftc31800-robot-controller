@@ -284,7 +284,7 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
 | RedTeamBotAutoFarShort | Pedro | Enabled | meet3_auto | Red far, short path |
 | BlueTeamBotAutoSimple | Auto | Disabled | - | Simplified blue autonomous |
 | RedTeamBotAutoSimple | Auto | Enabled | - | Simplified red autonomous |
-| BallSpeakerAuto | Auto | Enabled | - | Speaks detected ball colors; with drive motors, drives to the closest ball; with an `intake` motor, picks it up (up to 3); with the launcher, finds the goal AprilTag, lines up at 36 in and shoots; with `pinpoint` odometry, drives back to its starting spot. Repeats collect → shoot → return until 30 s runs out, heading home for the last time with 6 s left. Avoids robots: optional `frontDistance` sensor (< 14 in) or Pinpoint bump detection → wait, back up, turn away, resume. Camera-only OK |
+| BallSpeakerAuto | Auto | Enabled | - | Speaks detected ball colors; with drive motors, drives to the closest ball; with an `intake` motor, picks it up (up to 3); with the launcher, finds the goal AprilTag, lines up at 36 in and shoots; with `pinpoint` odometry, drives back to its starting spot. Repeats collect → shoot → return until 30 s runs out, heading home for the last time with 6 s left. Avoids robots: optional `frontDistance` sensor (< 14 in), camera (large red/blue alliance-color blob ahead, ignored when a goal tag is visible), or Pinpoint bump detection → wait, back up, turn away, resume. Camera-only OK |
 | BallDetectionTest | TeleOp | Enabled | - | Ball detection telemetry + auto-aim (LB any, X blue, B red, Y yellow) |
 
 ---
