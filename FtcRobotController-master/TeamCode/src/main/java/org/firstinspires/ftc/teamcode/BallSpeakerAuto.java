@@ -29,7 +29,11 @@ import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
  *   view), turns until it sees a goal AprilTag (20 blue / 24 red), lines up in the same
  *   shoot zone as TeamBotTeleop_latest (36 in, -3 deg), shoots, then collects again.
  * - + "pinpoint" odometry: after shooting, drives back to where it started (position and
- *   heading), says "home", and stops.
+ *   heading), says "home", then starts collecting again.
+ *
+ * The whole cycle (collect -> shoot -> return to start) repeats until AUTO_LENGTH_MS runs out.
+ * FINAL_RETURN_MS before the end it stops whatever it is doing, drives back to the start
+ * one last time, and stops.
  *
  * The robot never moves during INIT, and stops when no ball is in view.
  * Assumes the camera and intake both face the FRONT of the robot.
@@ -106,6 +110,10 @@ public class BallSpeakerAuto extends OpMode {
     private static final double HOME_HEADING_TOL_DEG = 3.0;
     private static final double HOME_TIMEOUT_MS    = 10000;  // safety: stop trying after this
 
+    // Repeat collect -> shoot -> return until time runs out
+    private static final double AUTO_LENGTH_MS  = 30000;   // FTC autonomous is 30 s; raise for practice
+    private static final double FINAL_RETURN_MS = 6000;    // with this much left, head back to start
+
     private enum State { SEEK, CAPTURE, SETTLE, FIND_GOAL, LINE_UP, SHOOT, RETURN_HOME, DONE, FULL }
     private enum ShotStep { FEED, FIRE, WAIT_LAUNCHED, DELAY }
     private State state = State.SEEK;
@@ -135,6 +143,9 @@ public class BallSpeakerAuto extends OpMode {
     private DcMotor intake     = null;
     private Servo   arm        = null;
     private PinpointOdometry odometry = null;   // null if no "pinpoint" configured
+    private final ElapsedTime matchTimer = new ElapsedTime();
+    private boolean finalReturn = false;        // true once we're heading home for the last time
+    private boolean started = false;            // Play has been pressed
     private boolean hasDrive   = false;
     private boolean hasLauncher = false;
 
@@ -204,6 +215,8 @@ public class BallSpeakerAuto extends OpMode {
         if (arm != null && canShoot()) arm.setPosition(SHOOT_ARM_POSITION);
         if (odometry != null) odometry.setPose(0, 0, 0);   // remember this spot as "start"
         lastBallSeenTimer.reset();
+        matchTimer.reset();
+        started = true;
     }
 
     @Override
@@ -212,6 +225,7 @@ public class BallSpeakerAuto extends OpMode {
         aprilTagWebcam.update();
         if (odometry != null) odometry.update();
         if (ballDetector.hasBall()) lastBallSeenTimer.reset();
+        checkTime();
         String status;
 
         switch (state) {
@@ -262,7 +276,8 @@ public class BallSpeakerAuto extends OpMode {
             case DONE:
                 setDrivePower(0, 0);
                 setIntake(0);
-                status = "back at start - done";
+                stopLaunchers();
+                status = "time's up - done";
                 break;
 
             case FULL:
@@ -467,8 +482,7 @@ public class BallSpeakerAuto extends OpMode {
 
     private void finishShooting() {
         setIntake(0);
-        leftLauncher.stop();     // flywheel off until the next round
-        rightLauncher.stop();
+        stopLaunchers();         // flywheel off until the next round
         ballsCollected = 0;
         lastBallSeenTimer.reset();
         setState(canReturnHome() ? State.RETURN_HOME : State.SEEK);
@@ -490,7 +504,9 @@ public class BallSpeakerAuto extends OpMode {
                 || stateTimer.milliseconds() > HOME_TIMEOUT_MS) {
             setDrivePower(0, 0, 0);
             ballDetector.announce("home");
-            setState(State.DONE);
+            // Last trip: stop. Otherwise go collect the next round.
+            lastBallSeenTimer.reset();
+            setState(finalReturn ? State.DONE : State.SEEK);
             return "back at start";
         }
 
@@ -511,6 +527,44 @@ public class BallSpeakerAuto extends OpMode {
                 : 0;
         setDrivePower(forward, strafeRight, turn);
         return String.format("returning to start: %.0f in, %.0f deg away", distance, headingError);
+    }
+
+    // -------------------------------------------------
+    // Time
+    // -------------------------------------------------
+
+    private double msLeft() {
+        return AUTO_LENGTH_MS - matchTimer.milliseconds();
+    }
+
+    /** Near the end, drop everything and head back to the start; at the end, stop. */
+    private void checkTime() {
+        if (state == State.DONE) return;
+
+        if (msLeft() <= 0) {
+            stopEverything();
+            setState(State.DONE);
+            return;
+        }
+        if (!finalReturn && canReturnHome() && msLeft() < FINAL_RETURN_MS) {
+            finalReturn = true;
+            stopEverything();
+            ballDetector.announce("going home");
+            setState(State.RETURN_HOME);
+        }
+    }
+
+    private void stopEverything() {
+        setDrivePower(0, 0, 0);
+        setIntake(0);
+        stopLaunchers();
+    }
+
+    private void stopLaunchers() {
+        if (hasLauncher) {
+            leftLauncher.stop();
+            rightLauncher.stop();
+        }
     }
 
     private boolean canReturnHome() {
@@ -543,6 +597,9 @@ public class BallSpeakerAuto extends OpMode {
     }
 
     private void report() {
+        if (started) {
+            telemetry.addData("Time left", "%.1f s", Math.max(0, msLeft()) / 1000.0);
+        }
         telemetry.addData("Sound", ballDetector.isSoundEnabled() ? "ON" : "OFF");
         telemetry.addData("Drive", hasDrive ? "connected" : "none (camera-only)");
         telemetry.addData("Intake", intake != null ? "connected" : "none");
@@ -582,10 +639,7 @@ public class BallSpeakerAuto extends OpMode {
     public void stop() {
         setDrivePower(0, 0);
         setIntake(0);
-        if (hasLauncher) {
-            leftLauncher.stop();
-            rightLauncher.stop();
-        }
+        stopLaunchers();
         aprilTagWebcam.stop();   // closes the shared camera
     }
 
