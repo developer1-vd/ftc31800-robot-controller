@@ -40,6 +40,12 @@ import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
  *   ROBOT_CLOSE_WIDTH of the image = robot ahead. Skipped while a goal AprilTag is in view,
  *   and while lining up on the goal, since the goals are big red/blue shapes too.
  * - Pinpoint odometry: told to drive but not moving for STALL_MS = bumped into something.
+ *
+ * Avoiding field walls (AVOID_WALLS, needs Pinpoint): set START_FIELD_X/Y/HEADING to where the
+ * robot starts, in the same 0-144 inch field coordinates the Pedro autos use. The robot then
+ * knows where it is on the field, and any drive command toward a wall closer than
+ * WALL_MARGIN_IN is removed (it can still slide along or back away from the wall). If a wall
+ * keeps it from getting anywhere for WALL_STUCK_MS, it backs off and turns away.
  * Either way it stops and waits briefly (the other robot may move), then backs up, turns
  * away (alternating left/right), and goes back to what it was doing.
  *
@@ -137,6 +143,17 @@ public class BallSpeakerAuto extends OpMode {
     private static final double AVOID_BACK_MS        = 500;
     private static final double AVOID_TURN_POWER     = 0.35;
     private static final double AVOID_TURN_MS        = 600;    // roughly a 45-90 degree turn; tune
+    // Field walls (needs Pinpoint). Field is 144 x 144 inches, same coordinates as the Pedro autos.
+    private static final boolean AVOID_WALLS          = true;
+    // Where the robot starts on the field. SET THESE for your starting spot!
+    // Default is the field center facing +X, which keeps the robot >= ~60 in from walls only
+    // if it really starts there.
+    private static final double START_FIELD_X           = 72.0;
+    private static final double START_FIELD_Y           = 72.0;
+    private static final double START_FIELD_HEADING_DEG = 0.0;
+    private static final double FIELD_SIZE_IN    = 144.0;
+    private static final double WALL_MARGIN_IN   = 12.0;   // robot center stays this far from walls
+    private static final double WALL_STUCK_MS    = 1500;   // blocked by a wall this long -> back off
     // Camera robot detection
     private static final boolean CAMERA_AVOID        = true;
     private static final double ROBOT_CLOSE_WIDTH    = 0.30;   // blob this wide (fraction of image) = close
@@ -182,6 +199,8 @@ public class BallSpeakerAuto extends OpMode {
     private State resumeState = State.SEEK;
     private boolean avoidBySensor = false;
     private double avoidTurnDirection = 1;             // +1 right, -1 left; alternates each time
+    private boolean wallBlocking = false;              // last drive command was cut by a wall
+    private final ElapsedTime wallStuckTimer = new ElapsedTime();
     private final ElapsedTime matchTimer = new ElapsedTime();
     private boolean finalReturn = false;        // true once we're heading home for the last time
     private boolean started = false;            // Play has been pressed
@@ -595,11 +614,18 @@ public class BallSpeakerAuto extends OpMode {
             return status;
         }
 
+        // A wall has been cutting our drive command for a while: back off and turn
+        if (!wallBlocking) wallStuckTimer.reset();
+        if (wallBlocking && wallStuckTimer.milliseconds() > WALL_STUCK_MS) {
+            startAvoid(false, false, "wall");
+            return "blocked by wall - backing off";
+        }
+
         boolean robotAhead = lastForward > 0.05
                 && (obstacleAhead() || (state != State.LINE_UP && robotSeenAhead()));
         boolean bumped = isStalled();
         if (robotAhead || bumped) {
-            startAvoid(robotAhead);
+            startAvoid(robotAhead, true, robotAhead ? "robot ahead" : "bumped");
             return robotAhead ? "robot ahead - stopping" : "bumped something - stopping";
         }
         return status;
@@ -635,7 +661,11 @@ public class BallSpeakerAuto extends OpMode {
         return false;
     }
 
-    private void startAvoid(boolean bySensor) {
+    /**
+     * @param bySensor  true if a sensor/camera can tell us when the way is clear again
+     * @param wait      wait for the obstacle to move first (robots move; walls don't)
+     */
+    private void startAvoid(boolean bySensor, boolean wait, String announcement) {
         // Where to pick up again afterwards
         if (state == State.RETURN_HOME) {
             resumeState = State.RETURN_HOME;
@@ -645,11 +675,12 @@ public class BallSpeakerAuto extends OpMode {
             resumeState = State.SEEK;
         }
         avoidBySensor = bySensor;
-        avoidStep = AvoidStep.WAIT;
+        avoidStep = wait ? AvoidStep.WAIT : AvoidStep.BACK_UP;
         avoidTimer.reset();
+        wallStuckTimer.reset();
         setDrivePower(0, 0, 0);
         setIntake(0);
-        ballDetector.announce(bySensor ? "robot ahead" : "bumped");
+        ballDetector.announce(announcement);
         setState(State.AVOID);
     }
 
@@ -692,6 +723,7 @@ public class BallSpeakerAuto extends OpMode {
     private void resumeAfterAvoid() {
         setDrivePower(0, 0, 0);
         stallTimer.reset();
+        wallStuckTimer.reset();
         lastBallSeenTimer.reset();
         setState(resumeState);
     }
@@ -732,6 +764,62 @@ public class BallSpeakerAuto extends OpMode {
             leftLauncher.stop();
             rightLauncher.stop();
         }
+    }
+
+    // -------------------------------------------------
+    // Field walls
+    // -------------------------------------------------
+
+    private boolean wallsActive() {
+        return AVOID_WALLS && odometry != null && started;
+    }
+
+    /** Robot position in field coordinates (0-144 in), from the start pose + odometry. */
+    private double fieldX() {
+        double h = Math.toRadians(START_FIELD_HEADING_DEG);
+        return START_FIELD_X + odometry.getX() * Math.cos(h) - odometry.getY() * Math.sin(h);
+    }
+
+    private double fieldY() {
+        double h = Math.toRadians(START_FIELD_HEADING_DEG);
+        return START_FIELD_Y + odometry.getX() * Math.sin(h) + odometry.getY() * Math.cos(h);
+    }
+
+    private double fieldHeadingRad() {
+        return Math.toRadians(START_FIELD_HEADING_DEG + odometry.getHeadingDeg());
+    }
+
+    /**
+     * Takes a robot-relative drive command and removes the part that would move the robot
+     * toward a wall it is already close to. Returns {forward, strafeRight}.
+     */
+    private double[] keepAwayFromWalls(double forward, double strafeRight) {
+        if (!wallsActive() || (forward == 0 && strafeRight == 0)) {
+            return new double[] { forward, strafeRight };
+        }
+        double h = fieldHeadingRad();
+        double left = -strafeRight;
+        // Robot frame -> field frame
+        double vx = forward * Math.cos(h) - left * Math.sin(h);
+        double vy = forward * Math.sin(h) + left * Math.cos(h);
+
+        double x = fieldX(), y = fieldY();
+        if (x < WALL_MARGIN_IN && vx < 0) vx = 0;
+        if (x > FIELD_SIZE_IN - WALL_MARGIN_IN && vx > 0) vx = 0;
+        if (y < WALL_MARGIN_IN && vy < 0) vy = 0;
+        if (y > FIELD_SIZE_IN - WALL_MARGIN_IN && vy > 0) vy = 0;
+
+        // Field frame -> robot frame
+        double newForward = vx * Math.cos(h) + vy * Math.sin(h);
+        double newLeft    = -vx * Math.sin(h) + vy * Math.cos(h);
+        return new double[] { newForward, -newLeft };
+    }
+
+    private boolean nearWall() {
+        if (!wallsActive()) return false;
+        double x = fieldX(), y = fieldY();
+        return x < WALL_MARGIN_IN || x > FIELD_SIZE_IN - WALL_MARGIN_IN
+                || y < WALL_MARGIN_IN || y > FIELD_SIZE_IN - WALL_MARGIN_IN;
     }
 
     private boolean canReturnHome() {
@@ -777,6 +865,10 @@ public class BallSpeakerAuto extends OpMode {
         if (odometry != null) {
             telemetry.addData("Position from start", "x %.1f  y %.1f in  heading %.0f deg",
                     odometry.getX(), odometry.getY(), odometry.getHeadingDeg());
+            if (AVOID_WALLS && started) {
+                telemetry.addData("Field position", "x %.1f  y %.1f in%s",
+                        fieldX(), fieldY(), nearWall() ? "  (NEAR WALL)" : "");
+            }
         } else {
             telemetry.addData("Odometry", "none (won't return to start)");
         }
@@ -794,6 +886,13 @@ public class BallSpeakerAuto extends OpMode {
 
     /** Mecanum drive, same mixing as the teleop: strafeRight > 0 = right, turn > 0 = turn right. */
     private void setDrivePower(double forward, double strafeRight, double turn) {
+        // Remove any motion toward a nearby field wall
+        double[] safe = keepAwayFromWalls(forward, strafeRight);
+        double requested = Math.hypot(forward, strafeRight);
+        wallBlocking = requested > 0.05 && Math.hypot(safe[0], safe[1]) < 0.5 * requested;
+        forward = safe[0];
+        strafeRight = safe[1];
+
         lastForward = forward;
         lastStrafe = strafeRight;
         double max = Math.max(Math.abs(forward) + Math.abs(strafeRight) + Math.abs(turn), 1);
