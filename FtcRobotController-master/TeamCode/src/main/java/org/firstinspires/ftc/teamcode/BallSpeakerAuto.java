@@ -4,6 +4,7 @@ import com.qualcomm.hardware.gobilda.GoBildaPinpointDriver;
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.hardware.DcMotor;
+import com.qualcomm.robotcore.hardware.DistanceSensor;
 import com.qualcomm.robotcore.hardware.Servo;
 import com.qualcomm.robotcore.util.ElapsedTime;
 import com.qualcomm.robotcore.util.Range;
@@ -13,6 +14,7 @@ import org.firstinspires.ftc.teamcode.mechanisms.BallDetector;
 import org.firstinspires.ftc.teamcode.mechanisms.FeederLauncher;
 import org.firstinspires.ftc.teamcode.mechanisms.PinpointOdometry;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
+import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
 
 /**
@@ -30,6 +32,13 @@ import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
  *   shoot zone as TeamBotTeleop_latest (36 in, -3 deg), shoots, then collects again.
  * - + "pinpoint" odometry: after shooting, drives back to where it started (position and
  *   heading), says "home", then starts collecting again.
+ *
+ * Avoiding other robots (AVOID_ROBOTS):
+ * - "frontDistance" distance sensor (optional): something closer than OBSTACLE_STOP_IN while
+ *   driving forward = robot ahead. Mount it ABOVE ball height so balls don't trigger it.
+ * - Pinpoint odometry: told to drive but not moving for STALL_MS = bumped into something.
+ * Either way it stops and waits briefly (the other robot may move), then backs up, turns
+ * away (alternating left/right), and goes back to what it was doing.
  *
  * The whole cycle (collect -> shoot -> return to start) repeats until AUTO_LENGTH_MS runs out.
  * FINAL_RETURN_MS before the end it stops whatever it is doing, drives back to the start
@@ -114,7 +123,20 @@ public class BallSpeakerAuto extends OpMode {
     private static final double AUTO_LENGTH_MS  = 30000;   // FTC autonomous is 30 s; raise for practice
     private static final double FINAL_RETURN_MS = 6000;    // with this much left, head back to start
 
-    private enum State { SEEK, CAPTURE, SETTLE, FIND_GOAL, LINE_UP, SHOOT, RETURN_HOME, DONE, FULL }
+    // Avoid other robots. Set to false to turn off.
+    private static final boolean AVOID_ROBOTS        = true;
+    private static final double OBSTACLE_STOP_IN     = 14.0;   // frontDistance closer than this = blocked
+    private static final double STALL_MIN_POWER      = 0.15;   // only check for bumps when driving this hard
+    private static final double STALL_SPEED_IN_PER_S = 2.0;    // slower than this = not moving
+    private static final double STALL_MS             = 700;    // not moving this long = bumped
+    private static final double AVOID_WAIT_MS        = 1000;   // wait for the other robot to move first
+    private static final double AVOID_BACK_POWER     = 0.3;
+    private static final double AVOID_BACK_MS        = 500;
+    private static final double AVOID_TURN_POWER     = 0.35;
+    private static final double AVOID_TURN_MS        = 600;    // roughly a 45-90 degree turn; tune
+
+    private enum State { SEEK, CAPTURE, SETTLE, FIND_GOAL, LINE_UP, SHOOT, RETURN_HOME, AVOID, DONE, FULL }
+    private enum AvoidStep { WAIT, BACK_UP, TURN }
     private enum ShotStep { FEED, FIRE, WAIT_LAUNCHED, DELAY }
     private State state = State.SEEK;
     private final ElapsedTime stateTimer = new ElapsedTime();
@@ -143,6 +165,16 @@ public class BallSpeakerAuto extends OpMode {
     private DcMotor intake     = null;
     private Servo   arm        = null;
     private PinpointOdometry odometry = null;   // null if no "pinpoint" configured
+    private DistanceSensor frontDistance = null; // null if no "frontDistance" configured
+
+    // Obstacle avoidance
+    private double lastForward = 0, lastStrafe = 0;   // last commanded drive (for bump detection)
+    private final ElapsedTime stallTimer = new ElapsedTime();
+    private final ElapsedTime avoidTimer = new ElapsedTime();
+    private AvoidStep avoidStep = AvoidStep.WAIT;
+    private State resumeState = State.SEEK;
+    private boolean avoidBySensor = false;
+    private double avoidTurnDirection = 1;             // +1 right, -1 left; alternates each time
     private final ElapsedTime matchTimer = new ElapsedTime();
     private boolean finalReturn = false;        // true once we're heading home for the last time
     private boolean started = false;            // Play has been pressed
@@ -184,6 +216,11 @@ public class BallSpeakerAuto extends OpMode {
                     GoBildaPinpointDriver.EncoderDirection.REVERSED);
         } catch (Exception e) {
             odometry = null;
+        }
+        try {
+            frontDistance = hardwareMap.get(DistanceSensor.class, "frontDistance");
+        } catch (Exception e) {
+            frontDistance = null;
         }
         try {
             arm = hardwareMap.get(Servo.class, "armServo");
@@ -273,6 +310,10 @@ public class BallSpeakerAuto extends OpMode {
                 status = returnHome();
                 break;
 
+            case AVOID:
+                status = avoid();
+                break;
+
             case DONE:
                 setDrivePower(0, 0);
                 setIntake(0);
@@ -298,6 +339,8 @@ public class BallSpeakerAuto extends OpMode {
                 }
                 break;
         }
+
+        status = checkForRobots(status);
 
         // Launchers run their own spin-up/feed timing; keep them updated every loop
         if (hasLauncher) {
@@ -530,6 +573,108 @@ public class BallSpeakerAuto extends OpMode {
     }
 
     // -------------------------------------------------
+    // Avoiding other robots
+    // -------------------------------------------------
+
+    /** After this loop's drive command: if something is in the way, switch to AVOID. */
+    private String checkForRobots(String status) {
+        if (!AVOID_ROBOTS || !hasDrive) return status;
+
+        // Only while driving around (not while shooting, swallowing a ball, avoiding, or done)
+        boolean driving = state == State.SEEK || state == State.FIND_GOAL
+                || state == State.LINE_UP || state == State.RETURN_HOME;
+        if (!driving) {
+            stallTimer.reset();
+            return status;
+        }
+
+        boolean robotAhead = lastForward > 0.05 && obstacleAhead();
+        boolean bumped = isStalled();
+        if (robotAhead || bumped) {
+            startAvoid(robotAhead);
+            return robotAhead ? "robot ahead - stopping" : "bumped something - stopping";
+        }
+        return status;
+    }
+
+    private boolean obstacleAhead() {
+        return frontDistance != null
+                && frontDistance.getDistance(DistanceUnit.INCH) < OBSTACLE_STOP_IN;
+    }
+
+    /** Told to drive (not just turn) but the odometry says we aren't moving. */
+    private boolean isStalled() {
+        if (odometry == null) return false;
+        boolean pushing = Math.hypot(lastForward, lastStrafe) >= STALL_MIN_POWER;
+        double speed = Math.hypot(odometry.getVelocityX(), odometry.getVelocityY());
+        if (pushing && speed < STALL_SPEED_IN_PER_S) {
+            return stallTimer.milliseconds() > STALL_MS;
+        }
+        stallTimer.reset();
+        return false;
+    }
+
+    private void startAvoid(boolean bySensor) {
+        // Where to pick up again afterwards
+        if (state == State.RETURN_HOME) {
+            resumeState = State.RETURN_HOME;
+        } else if (state == State.FIND_GOAL || state == State.LINE_UP) {
+            resumeState = State.FIND_GOAL;
+        } else {
+            resumeState = State.SEEK;
+        }
+        avoidBySensor = bySensor;
+        avoidStep = AvoidStep.WAIT;
+        avoidTimer.reset();
+        setDrivePower(0, 0, 0);
+        setIntake(0);
+        ballDetector.announce(bySensor ? "robot ahead" : "bumped");
+        setState(State.AVOID);
+    }
+
+    /** Wait -> back up -> turn away -> resume. */
+    private String avoid() {
+        switch (avoidStep) {
+            case WAIT:
+                setDrivePower(0, 0, 0);
+                // The other robot moved out of the way: carry on
+                if (avoidBySensor && !obstacleAhead() && avoidTimer.milliseconds() > 300) {
+                    resumeAfterAvoid();
+                    return "path clear";
+                }
+                if (avoidTimer.milliseconds() > AVOID_WAIT_MS) {
+                    avoidStep = AvoidStep.BACK_UP;
+                    avoidTimer.reset();
+                }
+                return "waiting for robot to move";
+
+            case BACK_UP:
+                setDrivePower(-AVOID_BACK_POWER, 0, 0);
+                if (avoidTimer.milliseconds() > AVOID_BACK_MS) {
+                    avoidStep = AvoidStep.TURN;
+                    avoidTimer.reset();
+                }
+                return "backing up";
+
+            case TURN:
+            default:
+                setDrivePower(0, 0, avoidTurnDirection * AVOID_TURN_POWER);
+                if (avoidTimer.milliseconds() > AVOID_TURN_MS) {
+                    avoidTurnDirection = -avoidTurnDirection;   // try the other way next time
+                    resumeAfterAvoid();
+                }
+                return "turning away";
+        }
+    }
+
+    private void resumeAfterAvoid() {
+        setDrivePower(0, 0, 0);
+        stallTimer.reset();
+        lastBallSeenTimer.reset();
+        setState(resumeState);
+    }
+
+    // -------------------------------------------------
     // Time
     // -------------------------------------------------
 
@@ -604,6 +749,9 @@ public class BallSpeakerAuto extends OpMode {
         telemetry.addData("Drive", hasDrive ? "connected" : "none (camera-only)");
         telemetry.addData("Intake", intake != null ? "connected" : "none");
         telemetry.addData("Launcher", hasLauncher ? "connected" : "none");
+        if (frontDistance != null) {
+            telemetry.addData("Front distance", "%.1f in", frontDistance.getDistance(DistanceUnit.INCH));
+        }
         if (odometry != null) {
             telemetry.addData("Position from start", "x %.1f  y %.1f in  heading %.0f deg",
                     odometry.getX(), odometry.getY(), odometry.getHeadingDeg());
@@ -624,6 +772,8 @@ public class BallSpeakerAuto extends OpMode {
 
     /** Mecanum drive, same mixing as the teleop: strafeRight > 0 = right, turn > 0 = turn right. */
     private void setDrivePower(double forward, double strafeRight, double turn) {
+        lastForward = forward;
+        lastStrafe = strafeRight;
         double max = Math.max(Math.abs(forward) + Math.abs(strafeRight) + Math.abs(turn), 1);
         if (frontLeft  != null) frontLeft.setPower((forward + strafeRight + turn) / max);
         if (backLeft   != null) backLeft.setPower((forward - strafeRight + turn) / max);
