@@ -12,6 +12,7 @@ import org.firstinspires.ftc.vision.VisionPortal;
 import org.firstinspires.ftc.vision.VisionProcessor;
 import org.firstinspires.ftc.vision.apriltag.AprilTagClusterDetection;
 import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
+import org.firstinspires.ftc.vision.apriltag.AprilTagGameDatabase;
 import org.firstinspires.ftc.vision.apriltag.AprilTagLibrary;
 import org.firstinspires.ftc.vision.apriltag.AprilTagProcessor;
 import org.firstinspires.ftc.vision.apriltag.AprilTagSingleDetection;
@@ -54,18 +55,10 @@ public class AprilTagWebcam {
     public void init(HardwareMap hwMap, Telemetry telemetry, VisionProcessor... extraProcessors) {
         this.telemetry = telemetry;
 
-        // Build a custom AprilTag library (defines IDs, names, and tag sizes)
-        AprilTagLibrary.Builder tagbuilder = new AprilTagLibrary.Builder();
-        tagbuilder.addTag(20, "Tag20", 0.166, DistanceUnit.METER);
-        tagbuilder.addTag(21, "Tag21", 0.166, DistanceUnit.METER);
-        tagbuilder.addTag(22, "Tag22", 0.166, DistanceUnit.METER);
-        tagbuilder.addTag(23, "Tag23", 0.166, DistanceUnit.METER);
-        tagbuilder.addTag(24, "Tag24", 0.166, DistanceUnit.METER);
-
-        // ...add other tags if desired
-
-        // Final library object containing all registered tags
-        AprilTagLibrary library = tagbuilder.build();
+        // BIOBUZZ (2026-27) tags from the SDK: each HIVE CELL has a 4-tag cluster on its
+        // underside (RED 30-37, BLUE 38-45). The cluster origin is the center of the CELL
+        // opening, so range/bearing to a cluster detection points at the CELL itself.
+        AprilTagLibrary library = AprilTagGameDatabase.getCurrentGameTagLibrary();
 
         // Create the AprilTag detector and configure drawing + output units
         aprilTagProcessor = new AprilTagProcessor.Builder()
@@ -74,7 +67,7 @@ public class AprilTagWebcam {
                 .setDrawAxes(true)            // Show tag orientation axes
                 .setDrawCubeProjection(true)  // 3D cube overlay for visualization
                 .setOutputUnits(DistanceUnit.INCH, AngleUnit.DEGREES)
-                .setTagLibrary(library)       // Use custom FTCLib-style tag library
+                .setTagLibrary(library)       // BIOBUZZ CELL clusters
                 .build();
 
         // Open camera and attach AprilTag processor
@@ -183,6 +176,31 @@ public class AprilTagWebcam {
             }
         }
         return null;
+    }
+
+    /**
+     * Closest visible HIVE CELL cluster of the given alliance (red = tags 30-37,
+     * blue = 38-45), or null. Only the upward-facing CELL's cluster faces the floor,
+     * so a visible cluster is normally the CELL you can LAUNCH into.
+     */
+    public AprilTagDetection getCellCluster(boolean red) {
+        String prefix = red ? "RED" : "BLUE";
+        AprilTagDetection best = null;
+        for (AprilTagDetection detection : detectedTags) {
+            if (detection instanceof AprilTagClusterDetection) {
+                AprilTagClusterDetection cluster = (AprilTagClusterDetection) detection;
+                if (cluster.metadata != null && cluster.metadata.name.startsWith(prefix)
+                        && (best == null || detection.ftcPose.range < best.ftcPose.range)) {
+                    best = detection;
+                }
+            }
+        }
+        return best;
+    }
+
+    /** True if this detection is within the target range/bearing window. */
+    public boolean isInZone(AprilTagDetection detection) {
+        return detection != null && isRangeBearingInZone(detection);
     }
 
     /** Tag ID of a single-tag detection, or -1 for a tag cluster (SDK 12+). */

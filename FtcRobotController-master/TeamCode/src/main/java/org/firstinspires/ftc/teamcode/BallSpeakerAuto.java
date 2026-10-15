@@ -18,9 +18,9 @@ import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
 
 /**
- * Autonomous that watches for yellow / blue / red balls, says the color out loud
- * on the Driver Station ("red ball"), turns to face the closest ball, drives to it,
- * and picks it up with the intake.
+ * BIOBUZZ (2026-27) autonomous. Watches for yellow POLLEN and red/blue NECTAR, says the color
+ * out loud on the Driver Station ("red ball"), turns to face the closest ball it wants (POLLEN
+ * or our alliance's NECTAR, see RED_ALLIANCE), drives to it, and picks it up with the intake.
  *
  * Works with whatever hardware is configured:
  * - Camera only (Control Hub + battery + "Webcam 1"): detects and speaks.
@@ -28,17 +28,18 @@ import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
  * - + "intake" motor: drives onto the ball with the intake running and picks it up,
  *   says "got ball", then goes after the next one (up to MAX_BALLS).
  * - + "launcher" motor and feeder servos: when full (or holding balls with none left in
- *   view), turns until it sees a goal AprilTag (20 blue / 24 red), lines up in the same
- *   shoot zone as TeamBotTeleop_latest (36 in, -3 deg), shoots, then collects again.
- * - + "pinpoint" odometry: after shooting, drives back to where it started (position and
- *   heading), says "home", then starts collecting again.
+ *   view), turns until it sees our HIVE CELL's AprilTag cluster, lines up in the same shoot
+ *   zone as TeamBotTeleop_latest, LAUNCHES into the CELL, then collects again.
+ * - + "pinpoint" odometry: after shooting, drives back to HOME_OFFSET_IN in front of where it
+ *   started (off the wall, so LEAVE still counts), says "home", then collects again. At the
+ *   end it goes there, or to a LOADING ZONE PARK spot if PARK_IN_LOADING_ZONE is set.
  *
  * Avoiding other robots (AVOID_ROBOTS):
  * - "frontDistance" distance sensor (optional): something closer than OBSTACLE_STOP_IN while
  *   driving forward = robot ahead. Mount it ABOVE ball height so balls don't trigger it.
- * - Camera (CAMERA_AVOID): a large red/blue alliance-color blob straight ahead and wider than
- *   ROBOT_CLOSE_WIDTH of the image = robot ahead. Skipped while a goal AprilTag is in view,
- *   and while lining up on the goal, since the goals are big red/blue shapes too.
+ * - Camera (CAMERA_AVOID): a large red/blue ROBOT SIGN-colored blob straight ahead, wider than
+ *   ROBOT_CLOSE_WIDTH of the image and not in the top of the image = robot ahead. Skipped while
+ *   a HIVE CELL tag cluster is in view and while lining up, since the HIVE is red/blue too.
  * - Pinpoint odometry: told to drive but not moving for STALL_MS = bumped into something.
  *
  * Avoiding field walls (AVOID_WALLS, needs Pinpoint): set START_FIELD_X/Y/HEADING to where the
@@ -95,10 +96,12 @@ public class BallSpeakerAuto extends OpMode {
 
     // Shooting (needs "launcher" motor + "feederServoLeft"/"feederServoRight"). Set false to skip.
     private static final boolean SHOOT_BALLS = true;
-    // Which goal to shoot at: 0 = whichever goal tag it sees, 24 = RED goal, 20 = BLUE goal.
-    // Set this to your alliance's goal for a real match.
-    private static final int    GOAL_TAG_ID           = 0;
-    // Shoot zone, same values as TeamBotTeleop_latest (AprilTag range/bearing)
+    // BIOBUZZ: which alliance we are. SET THIS before every match!
+    // The robot only LAUNCHES into its own alliance's HIVE CELL (red tags 30-37, blue 38-45)
+    // and only picks up yellow POLLEN and its own alliance's NECTAR.
+    private static final boolean RED_ALLIANCE         = true;
+    // Shoot zone, same values as TeamBotTeleop_latest (range/bearing to the CELL tag cluster).
+    // These came from last season's goal; the CELL is ~44 in up in the field center: RE-TUNE.
     private static final double SHOOT_RANGE_IN        = 36.0;
     private static final double SHOOT_RANGE_TOL_IN    = 6.0;
     private static final double SHOOT_BEARING_DEG     = -3.0;
@@ -116,6 +119,17 @@ public class BallSpeakerAuto extends OpMode {
     // Drive back to the starting spot after shooting (needs the "pinpoint" odometry computer).
     // Set to false to keep collecting and shooting instead.
     private static final boolean RETURN_TO_START = true;
+    // BIOBUZZ: robots start against the perimeter wall, and LEAVE (3 pts) only counts if the robot
+    // is NOT touching the wall at the end of AUTO. So "home" is this far in front of the start.
+    private static final double HOME_OFFSET_IN = 12.0;
+    // End of AUTO: PARK (5 pts) = at least partially in your alliance's LOADING ZONE (23 x 11 in
+    // against the perimeter by your ALLIANCE AREA). Set PARK_IN_LOADING_ZONE = true and the field
+    // coordinates (same 0-144 in system as START_FIELD_*) of a spot partly inside it, not touching
+    // the wall. Otherwise the final trip goes to "home" above.
+    private static final boolean PARK_IN_LOADING_ZONE    = false;
+    private static final double  PARK_FIELD_X            = 0.0;
+    private static final double  PARK_FIELD_Y            = 0.0;
+    private static final double  PARK_FIELD_HEADING_DEG  = 0.0;
     // Pinpoint pod setup, same as pedroPathing/Constants.java (forwardPodY = 0, strafePodX = -2)
     private static final double PINPOINT_X_OFFSET_IN = 0.0;
     private static final double PINPOINT_Y_OFFSET_IN = -2.0;
@@ -158,6 +172,7 @@ public class BallSpeakerAuto extends OpMode {
     private static final boolean CAMERA_AVOID        = true;
     private static final double ROBOT_CLOSE_WIDTH    = 0.30;   // blob this wide (fraction of image) = close
     private static final double ROBOT_AHEAD_DEG      = 20.0;   // blob within this angle of center = in our path
+    private static final double ROBOT_MIN_IMAGE_Y    = 0.30;   // ignore blobs in the top 30% (the HIVE)
 
     private enum State { SEEK, CAPTURE, SETTLE, FIND_GOAL, LINE_UP, SHOOT, RETURN_HOME, AVOID, DONE, FULL }
     private enum AvoidStep { WAIT, BACK_UP, TURN }
@@ -380,9 +395,18 @@ public class BallSpeakerAuto extends OpMode {
         report();
     }
 
+    /** Closest ball we want: yellow POLLEN or our alliance's NECTAR (balls are sorted closest first). */
+    private BallDetector.Ball closestWantedBall() {
+        BallDetector.BallColor opponent = RED_ALLIANCE ? BallDetector.BallColor.BLUE : BallDetector.BallColor.RED;
+        for (BallDetector.Ball ball : ballDetector.getBalls()) {
+            if (ball.color != opponent) return ball;
+        }
+        return null;
+    }
+
     /** Turn toward and drive to the closest ball. Returns a status line. */
     private String seek() {
-        BallDetector.Ball ball = ballDetector.getClosestBall();
+        BallDetector.Ball ball = closestWantedBall();
         if (!TURN_TO_BALL || ball == null) {
             setDrivePower(0, 0);
             setIntake(0);
@@ -437,7 +461,7 @@ public class BallSpeakerAuto extends OpMode {
     // Shooting
     // -------------------------------------------------
 
-    /** Turn in place until a goal AprilTag is visible. */
+    /** Turn in place until our HIVE CELL's tag cluster is visible. */
     private String findGoal() {
         setIntake(0);
         if (getGoalTag() != null) {
@@ -561,18 +585,36 @@ public class BallSpeakerAuto extends OpMode {
     // Return to start (Pinpoint odometry)
     // -------------------------------------------------
 
-    /** Drive straight back to (0, 0) and turn to heading 0, using mecanum strafing. */
+    /**
+     * Where to drive back to, relative to the start ({x forward, y left, heading deg}):
+     * HOME_OFFSET_IN in front of the start, or the LOADING ZONE park spot on the final trip.
+     */
+    private double[] homeTarget() {
+        if (finalReturn && PARK_IN_LOADING_ZONE) {
+            double sh = Math.toRadians(START_FIELD_HEADING_DEG);
+            double dx = PARK_FIELD_X - START_FIELD_X;
+            double dy = PARK_FIELD_Y - START_FIELD_Y;
+            return new double[] {
+                    dx * Math.cos(sh) + dy * Math.sin(sh),
+                    -dx * Math.sin(sh) + dy * Math.cos(sh),
+                    PARK_FIELD_HEADING_DEG - START_FIELD_HEADING_DEG };
+        }
+        return new double[] { HOME_OFFSET_IN, 0, 0 };
+    }
+
+    /** Drive straight to homeTarget() and turn to its heading, using mecanum strafing. */
     private String returnHome() {
+        double[] target = homeTarget();
         double x = odometry.getX();              // inches, + = forward of start
         double y = odometry.getY();              // inches, + = left of start
         double heading = odometry.getHeadingDeg();
-        double distance = Math.hypot(x, y);
-        double headingError = AngleUnit.normalizeDegrees(0 - heading);   // + = need to turn LEFT
+        double distance = Math.hypot(target[0] - x, target[1] - y);
+        double headingError = AngleUnit.normalizeDegrees(target[2] - heading);   // + = need to turn LEFT
 
         if ((distance <= HOME_POSITION_TOL_IN && Math.abs(headingError) <= HOME_HEADING_TOL_DEG)
                 || stateTimer.milliseconds() > HOME_TIMEOUT_MS) {
             setDrivePower(0, 0, 0);
-            ballDetector.announce("home");
+            ballDetector.announce(finalReturn && PARK_IN_LOADING_ZONE ? "parked" : "home");
             // Last trip: stop. Otherwise go collect the next round.
             lastBallSeenTimer.reset();
             setState(finalReturn ? State.DONE : State.SEEK);
@@ -581,7 +623,7 @@ public class BallSpeakerAuto extends OpMode {
 
         // Field-frame error to start, rotated into the robot's frame
         double h = Math.toRadians(heading);
-        double dx = -x, dy = -y;
+        double dx = target[0] - x, dy = target[1] - y;
         double forwardErr = dx * Math.cos(h) + dy * Math.sin(h);    // + = start is ahead
         double leftErr    = -dx * Math.sin(h) + dy * Math.cos(h);   // + = start is to the left
 
@@ -631,17 +673,23 @@ public class BallSpeakerAuto extends OpMode {
         return status;
     }
 
-    /** Camera: a big alliance-color blob in our path (ignored while a goal tag is visible). */
+    /** Camera: a big alliance-color blob in our path (ignored while a HIVE CELL is visible). */
     private boolean robotSeenAhead() {
         if (!CAMERA_AVOID) return false;
-        if (aprilTagWebcam.getTagBySpecificId(20) != null
-                || aprilTagWebcam.getTagBySpecificId(24) != null) {
-            return false;   // the big red/blue shape is probably the goal
+        if (aprilTagWebcam.getCellCluster(true) != null
+                || aprilTagWebcam.getCellCluster(false) != null) {
+            return false;   // the big red/blue shape is probably the HIVE
         }
-        BallDetector.RobotBlob robot = ballDetector.getLargestRobotBlob();
-        return robot != null
-                && robot.widthFraction >= ROBOT_CLOSE_WIDTH
-                && Math.abs(robot.bearing) <= ROBOT_AHEAD_DEG;
+        for (BallDetector.RobotBlob robot : ballDetector.getRobotBlobs()) {
+            // The HIVE CELLS hang ~44 in up, so they show up near the top of the image;
+            // robots (and their signs) are lower down.
+            if (robot.centerY < ROBOT_MIN_IMAGE_Y * BallDetector.IMAGE_HEIGHT) continue;
+            if (robot.widthFraction >= ROBOT_CLOSE_WIDTH
+                    && Math.abs(robot.bearing) <= ROBOT_AHEAD_DEG) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean obstacleAhead() {
@@ -826,16 +874,9 @@ public class BallSpeakerAuto extends OpMode {
         return RETURN_TO_START && odometry != null && hasDrive;
     }
 
-    /** The goal tag to shoot at (GOAL_TAG_ID, or the closer of 20/24 when it is 0). */
+    /** Our alliance's visible HIVE CELL (AprilTag cluster), or null. */
     private AprilTagDetection getGoalTag() {
-        if (GOAL_TAG_ID != 0) {
-            return aprilTagWebcam.getTagBySpecificId(GOAL_TAG_ID);
-        }
-        AprilTagDetection red  = aprilTagWebcam.getTagBySpecificId(24);
-        AprilTagDetection blue = aprilTagWebcam.getTagBySpecificId(20);
-        if (red == null) return blue;
-        if (blue == null) return red;
-        return red.ftcPose.range <= blue.ftcPose.range ? red : blue;
+        return aprilTagWebcam.getCellCluster(RED_ALLIANCE);
     }
 
     private boolean canShoot() {

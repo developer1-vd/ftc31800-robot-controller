@@ -7,6 +7,13 @@ The TeamCode module contains the FTC Team 31800 robot control application for FT
 **Last Updated:** January 17, 2026  
 **Current Branch:** `meet3_auto` / `meet3_teleop`
 
+> **2026-27 season (BIOBUZZ) / FTC SDK 12.0 — October 2026.** The project now builds on SDK 12.0.
+> Updated for BIOBUZZ: `AprilTagWebcam` (HIVE CELL tag clusters), `BallDetector` (POLLEN /
+> NECTAR sizes), `BallSpeakerAuto`, and the shoot-ready light in `TeamBotTeleop_latest`.
+> **Still DECODE-only (last season):** the Pedro autos in `pedroPathing/` (field poses, paths,
+> 2-volley shooting), `TeamBotAuto`, the `*AutoSimple` autos, and all shoot RPM / range values,
+> which were tuned for the DECODE goal. See "BIOBUZZ notes" below.
+
 ---
 
 ## Project Structure
@@ -125,7 +132,12 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
 ### 1. **AprilTagWebcam** (`mechanisms/AprilTagWebcam.java`)
 - **Purpose:** Vision-based pose estimation using AprilTag markers
 - **Features:**
-  - Custom AprilTag library configuration (Tags 20, 21, 22)
+  - SDK 12 BIOBUZZ game library: one 4-tag cluster under each HIVE CELL
+    (RED SCORING 30-33, RED AUDIENCE 34-37, BLUE AUDIENCE 38-41, BLUE SCORING 42-45).
+    `getCellCluster(red)` returns the closest visible CELL of that alliance; the cluster origin
+    is the center of the CELL opening
+  - SDK 12 split detections into `AprilTagSingleDetection` and `AprilTagClusterDetection`;
+    `ftcPose` works on both
   - Pose estimation for range and bearing calculation
   - Telemetry reporting of detected tags
   - Range and bearing tolerance settings (default: 5 units)
@@ -168,7 +180,9 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
 - Converts RPM to distance metrics for motion control
 
 ### 7. **BallDetector** (`mechanisms/BallDetector.java`)
-- **Purpose:** Camera-based detection of yellow, blue, and red plastic (wiffle-style) balls
+- **Purpose:** Camera-based detection of BIOBUZZ scoring elements: yellow POLLEN (2.8 in) and
+  red/blue NECTAR (3.6 in) Gopher wiffle-style balls; distance uses each color's diameter and
+  the team's C270 calibration (focal length 968.4 px)
 - **Features:**
   - Uses the SDK `ColorBlobLocatorProcessor` with the built-in `YELLOW` / `BLUE` / `RED` color ranges
   - Fills in the ball holes (blur + closing) so each ball is one round blob
@@ -241,7 +255,7 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
 
 ### Vision & Sensing
 - **Webcam:** AprilTag detection capable
-- **AprilTag Markers:** Tags 20, 21, 22 (0.166m size)
+- **AprilTag Markers:** BIOBUZZ HIVE CELL clusters, tags 30-45 (3.25 in, 36h11)
 - **Odometry:** Pinpoint odometry system
 - **Indicator Light:** RGB LED strip
 
@@ -284,7 +298,7 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
 | RedTeamBotAutoFarShort | Pedro | Enabled | meet3_auto | Red far, short path |
 | BlueTeamBotAutoSimple | Auto | Disabled | - | Simplified blue autonomous |
 | RedTeamBotAutoSimple | Auto | Enabled | - | Simplified red autonomous |
-| BallSpeakerAuto | Auto | Enabled | - | Speaks detected ball colors; with drive motors, drives to the closest ball; with an `intake` motor, picks it up (up to 3); with the launcher, finds the goal AprilTag, lines up at 36 in and shoots; with `pinpoint` odometry, drives back to its starting spot. Repeats collect → shoot → return until 30 s runs out, heading home for the last time with 6 s left. Avoids robots: optional `frontDistance` sensor (< 14 in), camera (large red/blue alliance-color blob ahead, ignored when a goal tag is visible), or Pinpoint bump detection → wait, back up, turn away, resume. Avoids field walls with Pinpoint virtual walls (set `START_FIELD_X/Y/HEADING_DEG` in Pedro 0-144 in coordinates): motion toward a wall within 12 in is removed; stuck 1.5 s → back off and turn. Camera-only OK |
+| BallSpeakerAuto | Auto | Enabled | - | Speaks detected ball colors; with drive motors, drives to the closest ball; with an `intake` motor, picks it up (up to 3); with the launcher, finds our HIVE CELL's tag cluster (set `RED_ALLIANCE`), lines up and LAUNCHES; only collects POLLEN + our NECTAR; with `pinpoint` odometry, drives back to 12 in in front of the start (off the wall, so LEAVE counts) or, at the end, to a LOADING ZONE park spot (`PARK_IN_LOADING_ZONE`, `PARK_FIELD_*`). Repeats collect → shoot → return until 30 s runs out, heading home for the last time with 6 s left. Avoids robots: optional `frontDistance` sensor (< 14 in), camera (large red/blue alliance-color blob ahead, ignored when a HIVE CELL is visible or in the top 30% of the image), or Pinpoint bump detection → wait, back up, turn away, resume. Avoids field walls with Pinpoint virtual walls (set `START_FIELD_X/Y/HEADING_DEG` in Pedro 0-144 in coordinates): motion toward a wall within 12 in is removed; stuck 1.5 s → back off and turn. Camera-only OK |
 | BallDetectionTest | TeleOp | Enabled | - | Ball detection telemetry + auto-aim (LB any, X blue, B red, Y yellow) |
 
 ---
@@ -361,3 +375,20 @@ To enable an OpMode:
 - **Repository:** https://github.com/teamftc31800/ftc31800-robot-controller
 - **Build Tool:** Gradle with Android SDK
 - **Primary Branches:** `meet3_auto`, `meet3_teleop`
+
+
+---
+
+## BIOBUZZ notes (2026-27, from Competition Manual TU04)
+
+- **AUTO** is 30 s. Points in AUTO: LEAVE 3 (not touching the perimeter wall at the end of AUTO),
+  PARK 5 (at least partially in your LOADING ZONE), HIVE TIP 20 (LAUNCH enough into the
+  upward-facing CELL to tip the HIVE).
+- **Scoring elements:** 40 yellow POLLEN (2.8 in), 8 red + 8 blue NECTAR (3.6 in). Each robot
+  starts with 4 pre-loaded POLLEN; 4 POLLEN start in each FLOWER and in each GARDEN.
+- **HIVE:** in the field center, frame pivots ~44 in above the tiles. Each alliance's HIVE has two
+  CELLS (opening ~20 x 14 in, 12 in deep); the one facing up is the target. AprilTag clusters are
+  on the CELL undersides. FIRST notes the HIVE tags move, so they are for aiming, not field
+  localization.
+- **LOADING ZONE:** ~23 x 11 in against the perimeter by your ALLIANCE AREA.
+- **ROBOT SIGNS** must show alliance color, which is what the camera robot detection relies on.

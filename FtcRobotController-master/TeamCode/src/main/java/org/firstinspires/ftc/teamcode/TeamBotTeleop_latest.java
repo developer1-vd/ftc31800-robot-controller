@@ -101,6 +101,8 @@ public class TeamBotTeleop_latest extends OpMode {
 
     private static final int IN_TOLERANCE_REQUIRED = 1;
 
+    // Shoot window from last season (DECODE goal). The BIOBUZZ CELL is ~44 in up in the
+    // middle of the field, and range is measured to the CELL opening: RE-TUNE these.
     private static final double targetDist = 36;
     private static final double targetDistTol = 6;
 
@@ -265,32 +267,38 @@ public class TeamBotTeleop_latest extends OpMode {
         // -----------------------------
         aprilTagWebcam.update();
 
-        AprilTagDetection tag24 = aprilTagWebcam.getTagBySpecificId(24); // RED goal
-        AprilTagDetection tag20 = aprilTagWebcam.getTagBySpecificId(20); // BLUE goal
+        // BIOBUZZ: aim at a HIVE CELL. Each CELL has an AprilTag cluster on its underside
+        // (red 30-37, blue 38-45) whose origin is the center of the CELL opening.
+        AprilTagDetection redCell  = aprilTagWebcam.getCellCluster(true);
+        AprilTagDetection blueCell = aprilTagWebcam.getCellCluster(false);
 
         // Telemetry (optional but useful)
-        if (tag24 != null) {
-            telemetry.addLine("Seeing Tag 24 (RED GOAL)");
-            telemetry.addData("Tag24 Range (in target 36 tol 6)", tag24.ftcPose.range);
-            telemetry.addData("Tag24 Bearing (deg target -3 tol 7)", tag24.ftcPose.bearing);
+        if (redCell != null) {
+            telemetry.addLine("Seeing RED HIVE CELL");
+            telemetry.addData("Red CELL Range (in)", "%.1f (target %.0f tol %.0f)",
+                    redCell.ftcPose.range, targetDist, targetDistTol);
+            telemetry.addData("Red CELL Bearing (deg)", "%.1f (target %.0f tol %.0f)",
+                    redCell.ftcPose.bearing, targetBearing, targetBearingTol);
         }
-        if (tag20 != null) {
-            telemetry.addLine("Seeing Tag 20 (BLUE GOAL)");
-            telemetry.addData("Tag20 Range (in target 36 tol 6)", tag20.ftcPose.range);
-            telemetry.addData("Tag20 Bearing (deg target 0 tol 3)", tag20.ftcPose.bearing);
+        if (blueCell != null) {
+            telemetry.addLine("Seeing BLUE HIVE CELL");
+            telemetry.addData("Blue CELL Range (in)", "%.1f (target %.0f tol %.0f)",
+                    blueCell.ftcPose.range, targetDist, targetDistTol);
+            telemetry.addData("Blue CELL Bearing (deg)", "%.1f (target %.0f tol %.0f)",
+                    blueCell.ftcPose.bearing, targetBearing, targetBearingTol);
         }
 
-        // In-range if either goal tag is in the ~1ft zone
+        // In-range if either HIVE CELL is in the shoot window
         boolean inShootRange =
-                aprilTagWebcam.IsRobotinZone(24) ||
-                        aprilTagWebcam.IsRobotinZone(20);
+                aprilTagWebcam.isInZone(redCell) ||
+                        aprilTagWebcam.isInZone(blueCell);
 
         // Debounce so light doesn't flicker
         if (inShootRange) shootInRangeCount++;
         else shootInRangeCount = 0;
 
         if (shootInRangeCount >= SHOOT_DEBOUNCE_FRAMES) {
-            telemetry.addData("✅ SHOOT RANGE (Tag 24 or 20)", targetDist+'\t'+targetDistTol);
+            telemetry.addData("✅ SHOOT RANGE (HIVE CELL)", "%.0f +/- %.0f in", targetDist, targetDistTol);
             light.green();
         } else {
             light.blue();

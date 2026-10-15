@@ -25,7 +25,9 @@ import java.util.List;
 /**
  * Camera-based ball detection using the FTC SDK color blob locator.
  *
- * Finds yellow, blue, and red plastic (wiffle-style) balls in the camera image,
+ * Finds the BIOBUZZ (2026-27) scoring elements in the camera image: yellow POLLEN
+ * (~2.8 in) and red/blue NECTAR (~3.6 in), Gopher ResisDent wiffle-style balls.
+ * It
  * fits a circle to each one (the holes are filled in by the blob cleanup step),
  * and estimates the horizontal angle (bearing) and distance to the ball.
  *
@@ -39,8 +41,8 @@ import java.util.List;
  *
  * Robots: FTC robots show their alliance color (red/blue signs). Large red/blue blobs that
  * are not round (not a ball) and not thin lines (not floor tape) are reported by
- * getRobotBlobs() / getLargestRobotBlob() so an OpMode can steer clear of them. The goals
- * are also big red/blue shapes, so callers should ignore this while a goal is in view.
+ * getRobotBlobs() / getLargestRobotBlob() so an OpMode can steer clear of them. The HIVE
+ * CELLS are also big red/blue shapes, so callers should ignore this while a CELL is in view.
  *
  * Sound: when a ball comes into view, the Driver Station says its color out loud
  * (e.g. "red ball"). On by default; turn off with setSoundEnabled(false).
@@ -48,17 +50,23 @@ import java.util.List;
  */
 public class BallDetector {
 
+    /**
+     * BIOBUZZ: YELLOW = POLLEN (2.8 in), RED / BLUE = that alliance's NECTAR (3.6 in).
+     * Sizes are from the 2026-27 Competition Manual, section 9.8.
+     */
     public enum BallColor {
-        YELLOW(ColorRange.YELLOW, Color.rgb(255, 255, 0)),
-        BLUE  (ColorRange.BLUE,   Color.rgb(0, 128, 255)),
-        RED   (ColorRange.RED,    Color.rgb(255, 0, 0));
+        YELLOW(ColorRange.YELLOW, Color.rgb(255, 255, 0), 2.8),
+        BLUE  (ColorRange.BLUE,   Color.rgb(0, 128, 255), 3.6),
+        RED   (ColorRange.RED,    Color.rgb(255, 0, 0),   3.6);
 
         final ColorRange range;
-        final int drawColor;   // circle color on the camera stream preview
+        final int drawColor;          // circle color on the camera stream preview
+        final double defaultDiameterIn;
 
-        BallColor(ColorRange range, int drawColor) {
+        BallColor(ColorRange range, int drawColor, double defaultDiameterIn) {
             this.range = range;
             this.drawColor = drawColor;
+            this.defaultDiameterIn = defaultDiameterIn;
         }
     }
 
@@ -93,15 +101,18 @@ public class BallDetector {
     public static final int IMAGE_WIDTH  = 640;
     public static final int IMAGE_HEIGHT = 480;
 
-    // Ball diameter in inches. These plastic practice balls are about 2.9 in;
-    // measure yours and call setBallDiameter() if it differs.
-    private double ballDiameterIn = 2.9;
+    // Ball diameters in inches, per color (POLLEN 2.8, NECTAR 3.6). The manual says the balls
+    // vary a little; measure yours and call setBallDiameter(color, inches) if they differ.
+    private final EnumMap<BallColor, Double> ballDiameterIn = new EnumMap<>(BallColor.class);
+    {
+        for (BallColor c : BallColor.values()) ballDiameterIn.put(c, c.defaultDiameterIn);
+    }
 
     // Camera focal length in pixels at IMAGE_WIDTH x IMAGE_HEIGHT.
     // 968.4 = the team's own Logitech C270 calibration at 640x480
     // (TeamCode/src/main/res/xml/teamwebcamcalibrations.xml). To re-check:
     // place a ball at a known distance D (inches), read its radius r (pixels) from telemetry,
-    // then focalLengthPx = D * 2 * r / ballDiameterIn.
+    // then focalLengthPx = D * 2 * r / (that ball's diameter).
     private double focalLengthPx = 968.4;
 
     // -----------------------------
@@ -202,8 +213,8 @@ public class BallDetector {
         return processors.values().toArray(new VisionProcessor[0]);
     }
 
-    public void setBallDiameter(double inches) {
-        this.ballDiameterIn = inches;
+    public void setBallDiameter(BallColor color, double inches) {
+        ballDiameterIn.put(color, inches);
     }
 
     public void setFocalLengthPx(double focalLengthPx) {
@@ -294,7 +305,7 @@ public class BallDetector {
             if (r <= 0) continue;
 
             out.add(new Ball(color, x, y, r, blob.getCircularity(),
-                    pixelToBearing(x), radiusToDistance(r)));
+                    pixelToBearing(x), radiusToDistance(r, color)));
         }
     }
 
@@ -341,8 +352,8 @@ public class BallDetector {
     /**
      * Pinhole camera estimate: distance = realDiameter * focal / pixelDiameter.
      */
-    private double radiusToDistance(double radiusPx) {
-        return (ballDiameterIn * focalLengthPx) / (2.0 * radiusPx);
+    private double radiusToDistance(double radiusPx, BallColor color) {
+        return (ballDiameterIn.get(color) * focalLengthPx) / (2.0 * radiusPx);
     }
 
     /** All balls in the latest frame, closest first. */
