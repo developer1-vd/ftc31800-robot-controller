@@ -98,10 +98,11 @@ public class BallDetector {
     private double ballDiameterIn = 2.9;
 
     // Camera focal length in pixels at IMAGE_WIDTH x IMAGE_HEIGHT.
-    // ~822 is typical for a Logitech C270 at 640x480. TUNE THIS:
+    // 968.4 = the team's own Logitech C270 calibration at 640x480
+    // (TeamCode/src/main/res/xml/teamwebcamcalibrations.xml). To re-check:
     // place a ball at a known distance D (inches), read its radius r (pixels) from telemetry,
     // then focalLengthPx = D * 2 * r / ballDiameterIn.
-    private double focalLengthPx = 822.0;
+    private double focalLengthPx = 968.4;
 
     // -----------------------------
     // Blob filters (tune on the field)
