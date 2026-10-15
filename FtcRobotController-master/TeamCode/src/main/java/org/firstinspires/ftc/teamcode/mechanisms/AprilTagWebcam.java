@@ -10,9 +10,11 @@ import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.vision.VisionPortal;
 import org.firstinspires.ftc.vision.VisionProcessor;
+import org.firstinspires.ftc.vision.apriltag.AprilTagClusterDetection;
 import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
 import org.firstinspires.ftc.vision.apriltag.AprilTagLibrary;
 import org.firstinspires.ftc.vision.apriltag.AprilTagProcessor;
+import org.firstinspires.ftc.vision.apriltag.AprilTagSingleDetection;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -115,9 +117,19 @@ public class AprilTagWebcam {
      */
     public void displayDetectionTelemetry(AprilTagDetection detectionId) {
         if (detectionId != null) {
-            if (detectionId.metadata != null) {
-                // Known tag (exists in library)
-                telemetry.addLine(String.format("\n==== (ID %d) %s", detectionId.id, detectionId.metadata.name));
+            // SDK 12: a detection is either a single tag or a cluster of tags
+            AprilTagSingleDetection single = (detectionId instanceof AprilTagSingleDetection)
+                    ? (AprilTagSingleDetection) detectionId : null;
+            boolean known = (single == null) || single.metadata != null;
+            if (known) {
+                if (single != null) {
+                    // Known tag (exists in library)
+                    telemetry.addLine(String.format("\n==== (ID %d) %s", single.id, single.metadata.name));
+                } else {
+                    AprilTagClusterDetection cluster = (AprilTagClusterDetection) detectionId;
+                    telemetry.addLine(String.format("\n==== Tag Cluster (%s) %d%% found",
+                            cluster.metadata.name, cluster.percentClusterFound));
+                }
 
                 // Position of the tag relative to the camera
                 telemetry.addLine(String.format(
@@ -144,11 +156,11 @@ public class AprilTagWebcam {
                 ));
             } else {
                 // Tag detected but not included in configured library
-                telemetry.addLine(String.format("\n==== (ID %d) Unknown", detectionId.id));
+                telemetry.addLine(String.format("\n==== (ID %d) Unknown", single.id));
                 telemetry.addLine(String.format(
                         "Center %6.0f %6.0f   (pixels)",
-                        detectionId.center.x,
-                        detectionId.center.y
+                        single.center.x,
+                        single.center.y
                 ));
             }
         }
@@ -166,17 +178,23 @@ public class AprilTagWebcam {
      */
     public AprilTagDetection getTagBySpecificId(int id) {
         for (AprilTagDetection detection : detectedTags) {
-            if (detection.id == id) {
+            if (idOf(detection) == id) {
                 return detection;
             }
         }
         return null;
     }
 
+    /** Tag ID of a single-tag detection, or -1 for a tag cluster (SDK 12+). */
+    private static int idOf(AprilTagDetection detection) {
+        return (detection instanceof AprilTagSingleDetection)
+                ? ((AprilTagSingleDetection) detection).id : -1;
+    }
+
     public boolean IsRobotinZone(int id) {
         boolean inZone = false;
         for (AprilTagDetection detection : detectedTags) {
-            if (detection.id == id) {
+            if (idOf(detection) == id) {
                 inZone = isRangeBearingInZone(detection);
                 break;
             }
