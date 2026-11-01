@@ -10,9 +10,13 @@ The TeamCode module contains the FTC Team 31800 robot control application for FT
 > **2026-27 season (BIOBUZZ) / FTC SDK 12.0 — October 2026.** The project now builds on SDK 12.0.
 > Updated for BIOBUZZ: `AprilTagWebcam` (HIVE CELL tag clusters), `BallDetector` (POLLEN /
 > NECTAR sizes), `BallSpeakerAuto`, and the shoot-ready light in `TeamBotTeleop_latest`.
-> **Still DECODE-only (last season):** the Pedro autos in `pedroPathing/` (field poses, paths,
-> 2-volley shooting), `TeamBotAuto`, the `*AutoSimple` autos, and all shoot RPM / range values,
-> which were tuned for the DECODE goal. See "BIOBUZZ notes" below.
+> **Last season (DECODE), now `@Disabled`:** the Pedro autos in `pedroPathing/` (field poses,
+> paths, 2-volley shooting), `TeamBotAuto`, and the `*AutoSimple` autos. Use **BIOBUZZ Auto RED /
+> BLUE** instead. Shoot RPM / range values are still the DECODE ones and need re-tuning for the
+> HIVE. See "BIOBUZZ notes" below.
+>
+> **Building the APK:** `./build-apk.sh` (or `build-apk.bat`) at the repo root, or download it
+> from GitHub Actions (**Build robot APK** workflow, artifact `TeamCode-debug-apk`).
 
 ---
 
@@ -290,14 +294,15 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
 |--------|------|--------|--------|---------|
 | TeamBotTeleop | TeleOp | Disabled | meet3_teleop | Primary teleop control |
 | TeamBotTeleop_latest | TeleOp | Active | meet3_teleop | Latest telop with ramp |
-| TeamBotAuto | Auto | Enabled | meet3_auto | Basic autonomous |
+| TeamBotAuto | Auto | Disabled (DECODE) | meet3_auto | Basic autonomous |
 | BlueTeamBotAuto | Pedro | Enabled | meet3_auto | Blue alliance Pedro pathfinding |
-| BlueTeamBotAutoFarShort | Pedro | Enabled | meet3_auto | Blue far, short path |
-| BlueTeamBotAutoNearShort | Pedro | Enabled | meet3_auto | Blue near, short path |
+| BlueTeamBotAutoFarShort | Pedro | Disabled (DECODE) | meet3_auto | Blue far, short path |
+| BlueTeamBotAutoNearShort | Pedro | Disabled (DECODE) | meet3_auto | Blue near, short path |
 | RedTeamBotAuto | Pedro | Enabled | meet3_auto | Red alliance Pedro pathfinding |
-| RedTeamBotAutoFarShort | Pedro | Enabled | meet3_auto | Red far, short path |
+| RedTeamBotAutoFarShort | Pedro | Disabled (DECODE) | meet3_auto | Red far, short path |
 | BlueTeamBotAutoSimple | Auto | Disabled | - | Simplified blue autonomous |
 | RedTeamBotAutoSimple | Auto | Enabled | - | Simplified red autonomous |
+| BIOBUZZ Auto RED / BLUE (`BiobuzzAutoRed`, `BiobuzzAutoBlue`) | Auto | Enabled | - | BIOBUZZ competition autos: `BallSpeakerAuto` with the alliance set, 4 preloaded POLLEN shot first, and driving off the wall at the start (LEAVE) |
 | BallSpeakerAuto | Auto | Enabled | - | Speaks detected ball colors; with drive motors, drives to the closest ball; with an `intake` motor, picks it up (up to 3); with the launcher, finds our HIVE CELL's tag cluster (set `RED_ALLIANCE`), lines up and LAUNCHES; only collects POLLEN + our NECTAR; with `pinpoint` odometry, drives back to 12 in in front of the start (off the wall, so LEAVE counts) or, at the end, to a LOADING ZONE park spot (`PARK_IN_LOADING_ZONE`, `PARK_FIELD_*`). Repeats collect → shoot → return until 30 s runs out, heading home for the last time with 6 s left. Avoids robots: optional `frontDistance` sensor (< 14 in), camera (large red/blue alliance-color blob ahead, ignored when a HIVE CELL is visible or in the top 30% of the image), or Pinpoint bump detection → wait, back up, turn away, resume. Avoids field walls with Pinpoint virtual walls (set `START_FIELD_X/Y/HEADING_DEG` in Pedro 0-144 in coordinates): motion toward a wall within 12 in is removed; stuck 1.5 s → back off and turn. Camera-only OK |
 | BallDetectionTest | TeleOp | Enabled | - | Ball detection telemetry + auto-aim (LB any, X blue, B red, Y yellow) |
 
