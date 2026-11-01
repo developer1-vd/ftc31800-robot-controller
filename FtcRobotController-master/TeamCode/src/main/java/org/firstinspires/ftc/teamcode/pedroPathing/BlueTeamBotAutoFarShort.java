@@ -5,6 +5,7 @@ import com.pedropathing.geometry.BezierLine;
 import com.pedropathing.geometry.Pose;
 import com.pedropathing.paths.Path;
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
+import com.qualcomm.robotcore.eventloop.opmode.Disabled;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.Servo;
@@ -13,7 +14,10 @@ import com.qualcomm.robotcore.util.ElapsedTime;
 import org.firstinspires.ftc.teamcode.mechanisms.BallCollector;
 import org.firstinspires.ftc.teamcode.mechanisms.FeederLauncher;
 
+// DECODE (2025-26) autonomous: last season's field and goal. Disabled for BIOBUZZ;
+// use BiobuzzAutoRed / BiobuzzAutoBlue instead.
 @Autonomous(name ="FarTeamBotAutoFarShort", group = "Examples")
+@Disabled
 public class BlueTeamBotAutoFarShort extends OpMode {
 
     private Follower follower;

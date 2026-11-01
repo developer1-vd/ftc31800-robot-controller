@@ -92,13 +92,14 @@ public class BallSpeakerAuto extends OpMode {
     private static final double CAPTURE_DRIVE       = 0.25;  // forward power while swallowing the ball
     private static final double CAPTURE_MS          = 800;   // how long to drive onto the ball
     private static final double INTAKE_SETTLE_MS    = 500;   // keep intake running after, to pull it in
-    private static final int    MAX_BALLS           = 3;     // stop after this many (robot capacity)
+    private static final int    MAX_BALLS           = 4;     // robot capacity (BIOBUZZ preload is 4 POLLEN)
 
     // Shooting (needs "launcher" motor + "feederServoLeft"/"feederServoRight"). Set false to skip.
     private static final boolean SHOOT_BALLS = true;
     // BIOBUZZ: which alliance we are. SET THIS before every match!
     // The robot only LAUNCHES into its own alliance's HIVE CELL (red tags 30-37, blue 38-45)
     // and only picks up yellow POLLEN and its own alliance's NECTAR.
+    // (BiobuzzAutoRed / BiobuzzAutoBlue set this for you; this value is for BallSpeakerAuto.)
     private static final boolean RED_ALLIANCE         = true;
     // Shoot zone, same values as TeamBotTeleop_latest (range/bearing to the CELL tag cluster).
     // These came from last season's goal; the CELL is ~44 in up in the field center: RE-TUNE.
@@ -174,7 +175,11 @@ public class BallSpeakerAuto extends OpMode {
     private static final double ROBOT_AHEAD_DEG      = 20.0;   // blob within this angle of center = in our path
     private static final double ROBOT_MIN_IMAGE_Y    = 0.30;   // ignore blobs in the top 30% (the HIVE)
 
-    private enum State { SEEK, CAPTURE, SETTLE, FIND_GOAL, LINE_UP, SHOOT, RETURN_HOME, AVOID, DONE, FULL }
+    // Leaving the wall at the start (competition autos): drive forward this far / this long
+    private static final double LEAVE_WALL_POWER = 0.3;
+    private static final double LEAVE_WALL_MS    = 1500;   // time limit (and the only limit without Pinpoint)
+
+    private enum State { LEAVE_WALL, SEEK, CAPTURE, SETTLE, FIND_GOAL, LINE_UP, SHOOT, RETURN_HOME, AVOID, DONE, FULL }
     private enum AvoidStep { WAIT, BACK_UP, TURN }
     private enum ShotStep { FEED, FIRE, WAIT_LAUNCHED, DELAY }
     private State state = State.SEEK;
@@ -288,6 +293,25 @@ public class BallSpeakerAuto extends OpMode {
         report();
     }
 
+    // -------------------------------------------------
+    // Settings the competition autos (BiobuzzAutoRed / BiobuzzAutoBlue) override
+    // -------------------------------------------------
+
+    /** Which alliance we are: our HIVE CELL is the target, and the other alliance's NECTAR is skipped. */
+    protected boolean redAlliance() {
+        return RED_ALLIANCE;
+    }
+
+    /** Balls already in the robot at Play (BIOBUZZ robots start with 4 POLLEN). Shot first. */
+    protected int preloadedBalls() {
+        return 0;
+    }
+
+    /** Drive off the perimeter wall first (BIOBUZZ LEAVE = not touching the wall at the end of AUTO). */
+    protected boolean leaveWallFirst() {
+        return false;
+    }
+
     @Override
     public void start() {
         if (arm != null && canShoot()) arm.setPosition(SHOOT_ARM_POSITION);
@@ -295,6 +319,31 @@ public class BallSpeakerAuto extends OpMode {
         lastBallSeenTimer.reset();
         matchTimer.reset();
         started = true;
+
+        ballsCollected = Math.min(preloadedBalls(), MAX_BALLS);
+        if (leaveWallFirst() && hasDrive) {
+            setState(State.LEAVE_WALL);
+        } else {
+            setState(afterStartState());
+        }
+    }
+
+    /** With preloads, go shoot them first; otherwise start collecting. */
+    private State afterStartState() {
+        return (canShoot() && ballsCollected > 0) ? State.FIND_GOAL : State.SEEK;
+    }
+
+    /** Drive straight off the wall: HOME_OFFSET_IN with Pinpoint, otherwise for LEAVE_WALL_MS. */
+    private String leaveWall() {
+        setIntake(0);
+        boolean farEnough = odometry != null && odometry.getX() >= HOME_OFFSET_IN;
+        if (farEnough || stateTimer.milliseconds() > LEAVE_WALL_MS) {
+            setDrivePower(0, 0, 0);
+            setState(afterStartState());
+            return "off the wall";
+        }
+        setDrivePower(LEAVE_WALL_POWER, 0, 0);
+        return "leaving the wall";
     }
 
     @Override
@@ -307,6 +356,10 @@ public class BallSpeakerAuto extends OpMode {
         String status;
 
         switch (state) {
+            case LEAVE_WALL:
+                status = leaveWall();
+                break;
+
             case CAPTURE:
                 // The ball is now too close for the camera to see; drive straight onto it.
                 setIntake(INTAKE_IN_POWER);
@@ -397,7 +450,7 @@ public class BallSpeakerAuto extends OpMode {
 
     /** Closest ball we want: yellow POLLEN or our alliance's NECTAR (balls are sorted closest first). */
     private BallDetector.Ball closestWantedBall() {
-        BallDetector.BallColor opponent = RED_ALLIANCE ? BallDetector.BallColor.BLUE : BallDetector.BallColor.RED;
+        BallDetector.BallColor opponent = redAlliance() ? BallDetector.BallColor.BLUE : BallDetector.BallColor.RED;
         for (BallDetector.Ball ball : ballDetector.getBalls()) {
             if (ball.color != opponent) return ball;
         }
@@ -876,7 +929,7 @@ public class BallSpeakerAuto extends OpMode {
 
     /** Our alliance's visible HIVE CELL (AprilTag cluster), or null. */
     private AprilTagDetection getGoalTag() {
-        return aprilTagWebcam.getCellCluster(RED_ALLIANCE);
+        return aprilTagWebcam.getCellCluster(redAlliance());
     }
 
     private boolean canShoot() {
@@ -896,6 +949,7 @@ public class BallSpeakerAuto extends OpMode {
         if (started) {
             telemetry.addData("Time left", "%.1f s", Math.max(0, msLeft()) / 1000.0);
         }
+        telemetry.addData("Alliance", redAlliance() ? "RED" : "BLUE");
         telemetry.addData("Sound", ballDetector.isSoundEnabled() ? "ON" : "OFF");
         telemetry.addData("Drive", hasDrive ? "connected" : "none (camera-only)");
         telemetry.addData("Intake", intake != null ? "connected" : "none");
