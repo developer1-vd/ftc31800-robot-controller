@@ -10,7 +10,6 @@ apply plugin: 'com.android.application'
 // please think carefully as to whether such customizations are really necessary
 // before doing so.
 
-
 // Custom definitions may go here
 
 // Include common definitions from above.
