@@ -3,3 +3,5 @@
 .kilo
 .vscode
 *.iml
+# Built APKs (build-apk.sh / build-apk.bat)
+apk/
