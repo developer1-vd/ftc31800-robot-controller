@@ -306,6 +306,10 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
 - **Ball distance** comes from the target area (assumes a 640x480 image, ~54.5° wide).
   Camera-based robot avoidance is webcam-only; the distance sensor and bump detection still work.
 - `CellTarget` (range / bearing to our HIVE CELL) is what the OpModes use, from either camera.
+- **Troubleshooting:** run the **LimelightTest** TeleOp. It shows whether a Limelight 3A is in the
+  active configuration (under any name), whether it is connected and sending data (FPS,
+  temperature, pipeline), and what it sees; the D-pad switches pipelines 0-3. The Limelight must
+  be plugged into the **Control Hub** (not a laptop) and added with Configure Robot → Scan.
 
 ---
 

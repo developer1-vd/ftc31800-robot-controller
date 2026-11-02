@@ -61,7 +61,12 @@ public class BallDetectionTest extends OpMode {
             ballDetector.useLimelight(limelight, telemetry);
             telemetry.addLine("Using Limelight 3A");
         } else {
-            ballDetector.init(hardwareMap, telemetry);
+            try {
+                ballDetector.init(hardwareMap, telemetry);
+            } catch (Exception e) {
+                telemetry.addLine("⚠️ No camera found: no Limelight 3A and no \"Webcam 1\" in the robot"
+                        + " configuration. Run LimelightTest for setup help.");
+            }
         }
         ballDetector.setSoundEnabled(SOUND_ENABLED);
 
