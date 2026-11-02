@@ -6,6 +6,7 @@ import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.util.Range;
 
 import org.firstinspires.ftc.teamcode.mechanisms.BallDetector;
+import org.firstinspires.ftc.teamcode.mechanisms.LimelightVision;
 
 /**
  * Test OpMode for camera-based ball detection.
@@ -16,6 +17,10 @@ import org.firstinspires.ftc.teamcode.mechanisms.BallDetector;
  *   Hold X / B / Y for the closest BLUE / RED / YELLOW ball (matches the button colors).
  * - Driver Station says the ball color when one comes into view; gamepad1 BACK mutes/unmutes.
  *
+ * Limelight 3A (named "limelight" in the configuration): used instead of the webcam. It runs one
+ * color pipeline at a time: yellow POLLEN by default, blue/red/yellow while X/B/Y is held.
+ * Good for tuning each Limelight color pipeline.
+ *
  * Also use this to tune BallDetector: check radius/distance at known distances
  * and adjust the focal length and blob filters.
  */
@@ -23,6 +28,7 @@ import org.firstinspires.ftc.teamcode.mechanisms.BallDetector;
 public class BallDetectionTest extends OpMode {
 
     private final BallDetector ballDetector = new BallDetector();
+    private LimelightVision limelight = null;
 
     private DcMotor frontLeft  = null;
     private DcMotor frontRight = null;
@@ -50,7 +56,13 @@ public class BallDetectionTest extends OpMode {
         if (frontRight != null) frontRight.setDirection(DcMotor.Direction.FORWARD);
         if (backRight  != null) backRight.setDirection(DcMotor.Direction.FORWARD);
 
-        ballDetector.init(hardwareMap, telemetry);
+        limelight = LimelightVision.tryCreate(hardwareMap, telemetry);
+        if (limelight != null) {
+            ballDetector.useLimelight(limelight, telemetry);
+            telemetry.addLine("Using Limelight 3A");
+        } else {
+            ballDetector.init(hardwareMap, telemetry);
+        }
         ballDetector.setSoundEnabled(SOUND_ENABLED);
 
         if (frontLeft == null && frontRight == null && backLeft == null && backRight == null) {
@@ -62,14 +74,14 @@ public class BallDetectionTest extends OpMode {
 
     @Override
     public void init_loop() {
-        ballDetector.update();
+        updateVision();
         ballDetector.displayTelemetry();
         telemetry.update();
     }
 
     @Override
     public void loop() {
-        ballDetector.update();
+        updateVision();
 
         // Sound on/off: gamepad1 BACK (one toggle per press)
         if (gamepad1.back && !lastSoundToggle) {
@@ -126,7 +138,24 @@ public class BallDetectionTest extends OpMode {
 
     @Override
     public void stop() {
-        ballDetector.stop();
+        if (limelight != null) {
+            limelight.stop();
+        } else {
+            ballDetector.stop();
+        }
+    }
+
+    /** With a Limelight: pick the color pipeline from the held button (default yellow POLLEN). */
+    private void updateVision() {
+        if (limelight != null) {
+            BallDetector.BallColor color = BallDetector.BallColor.YELLOW;
+            if (gamepad1.x)      color = BallDetector.BallColor.BLUE;
+            else if (gamepad1.b) color = BallDetector.BallColor.RED;
+            limelight.setMode(LimelightVision.Mode.BALLS, color);
+            limelight.update();
+            limelight.displayTelemetry();
+        }
+        ballDetector.update();
     }
 
     private DcMotor getMotor(String name) {

@@ -56,6 +56,7 @@ All robot code that gets built is under `FtcRobotController-master/TeamCode/src/
 
 - `mechanisms/BallDetector.java` — POLLEN / NECTAR detection, distance and bearing; spots robots by their alliance-color signs
 - `mechanisms/AprilTagWebcam.java` — HIVE CELL AprilTag clusters (SDK 12)
+- `mechanisms/LimelightVision.java` — **Limelight 3A** support: used instead of the webcam when a Limelight named `limelight` is configured (pipeline setup in `TEAMCODE_DOCUMENTATION.md`)
 - `mechanisms/BallCollector.java`, `FeederLauncher.java`, `PinpointOdometry.java`, `RGBIndicatorLight.java` — subsystems
 - `pedroPathing/` — Pedro Pathing setup; the Near/Far Short autos in it are **last season's (DECODE)** and are disabled
 - `TEAMCODE_DOCUMENTATION.md` — detailed codebase, subsystem, and tuning documentation
@@ -84,7 +85,7 @@ The robot code supports driver control for:
 
 The codebase uses:
 
-- color-blob ball detection (POLLEN / NECTAR) with the team's Logitech C270 calibration
+- color-blob ball detection (POLLEN / NECTAR) with the team's Logitech C270 calibration, or a Limelight 3A's color pipelines
 - AprilTag cluster detection for HIVE CELL aiming
 - Pinpoint odometry for returning, parking, and virtual field walls
 - telemetry for debugging and tuning
@@ -123,7 +124,7 @@ adb install -r apk/TeamCode-debug.apk
 1. Clone the repository.
 2. Build the APK (above) or open the project in Android Studio.
 3. Deploy the `TeamCode` app to the Control Hub.
-4. Make sure the robot configuration names match the code (e.g. `Webcam 1`, `left_front_drive`, `intake`, `launcher`, `pinpoint`).
+4. Make sure the robot configuration names match the code (e.g. `Webcam 1` or `limelight`, `left_front_drive`, `intake`, `launcher`, `pinpoint`).
 5. Select the OpMode on the Driver Station and run it. For AUTO, enable the 30-second timer.
 
 ### Enabling an OpMode
