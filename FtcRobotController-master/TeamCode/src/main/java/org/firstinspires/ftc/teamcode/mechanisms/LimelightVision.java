@@ -27,8 +27,12 @@ import java.util.List;
  * For the color pipelines, enable multiple targets ("Smart Speckle"/"Max targets" > 1) so every
  * ball in view is reported, and set a minimum area so specks are ignored.
  *
- * In the robot configuration, add the Limelight (it shows up under the Control Hub's
- * Ethernet devices after "Scan") and name it "limelight".
+ * Hardware: plug the Limelight into one of the Control Hub's USB ports (it is powered over
+ * USB), wait ~30 s for it to boot (its LED turns green), then on the Driver Station:
+ * Configure Robot -> edit the configuration -> Scan. The Limelight appears in the list (as an
+ * Ethernet device); name it "limelight" (any name works, but that's the default), Save, and
+ * make that configuration active. Use LimelightTest to check it is seen and running.
+ * Plugged into a laptop instead, it is a USB network gadget for its web interface only.
  *
  * OpModes call setMode() to pick what to look for, update() once per loop, then read
  * getCellTarget() or getBallSightings(). Switching pipelines takes a moment, so results
@@ -81,18 +85,40 @@ public class LimelightVision {
     }
 
     /**
-     * Returns a started LimelightVision if a Limelight named "limelight" is in the robot
-     * configuration, or null if there isn't one (so OpModes can fall back to the webcam).
+     * The Limelight in the active robot configuration: the one named "limelight" if there is
+     * one, otherwise the first Limelight 3A under any name. Null if none is configured.
+     */
+    public static Limelight3A find(HardwareMap hwMap) {
+        Limelight3A named = hwMap.tryGet(Limelight3A.class, DEVICE_NAME);
+        if (named != null) return named;
+        List<Limelight3A> all = hwMap.getAll(Limelight3A.class);
+        return all.isEmpty() ? null : all.get(0);
+    }
+
+    /**
+     * Returns a started LimelightVision if a Limelight 3A is in the robot configuration,
+     * or null if there isn't one (so OpModes can fall back to the webcam).
      */
     public static LimelightVision tryCreate(HardwareMap hwMap, Telemetry telemetry) {
+        Limelight3A limelight = find(hwMap);
+        if (limelight == null) {
+            if (telemetry != null) {
+                telemetry.addLine("No Limelight 3A in the robot configuration (using Webcam 1)."
+                        + " Run LimelightTest for setup help.");
+            }
+            return null;
+        }
         try {
-            Limelight3A limelight = hwMap.get(Limelight3A.class, DEVICE_NAME);
             LimelightVision vision = new LimelightVision(limelight, telemetry);
             limelight.setPollRateHz(100);   // ask for results 100 times a second
             limelight.start();
             vision.setPipeline(HIVE_PIPELINE);
+            if (telemetry != null) {
+                telemetry.addData("Limelight 3A", "found: %s", hwMap.getNamesOf(limelight));
+            }
             return vision;
         } catch (Exception e) {
+            if (telemetry != null) telemetry.addData("⚠️ Limelight 3A failed to start", e.getMessage());
             return null;
         }
     }

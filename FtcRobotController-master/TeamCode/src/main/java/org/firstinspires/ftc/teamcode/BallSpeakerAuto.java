@@ -259,7 +259,12 @@ public class BallSpeakerAuto extends OpMode {
         } else {
             // Ball detection + AprilTags (for finding the goal) on the same webcam
             ballDetector.buildProcessors(telemetry);
-            aprilTagWebcam.init(hardwareMap, telemetry, ballDetector.getProcessors());
+            try {
+                aprilTagWebcam.init(hardwareMap, telemetry, ballDetector.getProcessors());
+            } catch (Exception e) {
+                telemetry.addLine("⚠️ No camera found: no Limelight 3A and no \"Webcam 1\" in the robot"
+                        + " configuration. Run LimelightTest for setup help.");
+            }
         }
         ballDetector.setSoundEnabled(SOUND_ENABLED);
 

@@ -101,6 +101,7 @@ public class AprilTagWebcam {
      * Should be called repeatedly in loop().
      */
     public void update() {
+        if (aprilTagProcessor == null) return;   // init() failed (no webcam)
         detectedTags = aprilTagProcessor.getDetections();
     }
 
