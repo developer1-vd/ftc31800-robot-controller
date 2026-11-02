@@ -7,6 +7,17 @@ The TeamCode module contains the FTC Team 31800 robot control application for FT
 **Last Updated:** January 17, 2026  
 **Current Branch:** `meet3_auto` / `meet3_teleop`
 
+> **2026-27 season (BIOBUZZ) / FTC SDK 12.0 — October 2026.** The project now builds on SDK 12.0.
+> Updated for BIOBUZZ: `AprilTagWebcam` (HIVE CELL tag clusters), `BallDetector` (POLLEN /
+> NECTAR sizes), `BallSpeakerAuto`, and the shoot-ready light in `TeamBotTeleop_latest`.
+> **Last season (DECODE), now `@Disabled`:** the Pedro autos in `pedroPathing/` (field poses,
+> paths, 2-volley shooting), `TeamBotAuto`, and the `*AutoSimple` autos. Use **BIOBUZZ Auto RED /
+> BLUE** instead. Shoot RPM / range values are still the DECODE ones and need re-tuning for the
+> HIVE. See "BIOBUZZ notes" below.
+>
+> **Building the APK:** `./build-apk.sh` (or `build-apk.bat`) at the repo root, or download it
+> from GitHub Actions (**Build robot APK** workflow, artifact `TeamCode-debug-apk`).
+
 ---
 
 ## Project Structure
@@ -18,6 +29,7 @@ TeamCode/
 │   ├── java/org/firstinspires/ftc/teamcode/
 │   │   ├── mechanisms/              # Robot subsystem implementations
 │   │   │   ├── AprilTagWebcam.java
+│   │   │   ├── BallDetector.java
 │   │   │   ├── FeederLauncher.java
 │   │   │   ├── FlyWheelTuner.java
 │   │   │   ├── PinpointOdometry.java
@@ -35,6 +47,7 @@ TeamCode/
 │   │   │   ├── RedTeamBotAutoFarLong.java
 │   │   │   ├── RedTeamBotAutoFarShort.java
 │   │   │   └── RedTeamBotAutoNearShort.java
+│   │   ├── BallDetectionTest.java
 │   │   ├── DriveTrain_Code.java
 │   │   ├── TeamBotAuto.java
 │   │   ├── TeamBotTeleop.java
@@ -77,6 +90,9 @@ TeamCode/
 - **Status:** Latest development version
 - **Last Updated:** January 11, 2026
 - **Changes:** Added ramp mechanics and flywheel improvements
+- **Ball auto-aim (gamepad1, hold):** LB = closest ball, X = blue, B = red, Y = yellow.
+  Overrides rotation only; the driver keeps forward/strafe. Uses `BallDetector` on the same
+  camera as AprilTags. Closest ball is shown under `== BALLS ==` in telemetry.
 - **Notable Updates:** 146 insertions, 51 deletions from previous version
 
 #### `TeamBotTeleop_analytics.java`
@@ -120,7 +136,12 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
 ### 1. **AprilTagWebcam** (`mechanisms/AprilTagWebcam.java`)
 - **Purpose:** Vision-based pose estimation using AprilTag markers
 - **Features:**
-  - Custom AprilTag library configuration (Tags 20, 21, 22)
+  - SDK 12 BIOBUZZ game library: one 4-tag cluster under each HIVE CELL
+    (RED SCORING 30-33, RED AUDIENCE 34-37, BLUE AUDIENCE 38-41, BLUE SCORING 42-45).
+    `getCellCluster(red)` returns the closest visible CELL of that alliance; the cluster origin
+    is the center of the CELL opening
+  - SDK 12 split detections into `AprilTagSingleDetection` and `AprilTagClusterDetection`;
+    `ftcPose` works on both
   - Pose estimation for range and bearing calculation
   - Telemetry reporting of detected tags
   - Range and bearing tolerance settings (default: 5 units)
@@ -161,6 +182,37 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
 ### 6. **RPM_per_dist** (`mechanisms/RPM_per_dist.java`)
 - **Purpose:** Velocity/distance mapping utility
 - Converts RPM to distance metrics for motion control
+
+### 7. **BallDetector** (`mechanisms/BallDetector.java`)
+- **Purpose:** Camera-based detection of BIOBUZZ scoring elements: yellow POLLEN (2.8 in) and
+  red/blue NECTAR (3.6 in) Gopher wiffle-style balls; distance uses each color's diameter and
+  the team's C270 calibration (focal length 968.4 px)
+- **Features:**
+  - Uses the SDK `ColorBlobLocatorProcessor` with the built-in `YELLOW` / `BLUE` / `RED` color ranges
+  - Fills in the ball holes (blur + closing) so each ball is one round blob
+  - Filters blobs by area and circularity, fits a circle to each ball
+  - Estimates bearing (deg, + = left, same sign as AprilTag bearing) and distance (in)
+  - `getClosestBall()` / `getClosestBall(color)` helpers for aiming and intake logic
+- **Hardware:** "Webcam 1" at 640x480
+- **Usage:**
+  - Standalone: `ballDetector.init(hardwareMap, telemetry)`
+  - Sharing the camera with AprilTags: `ballDetector.buildProcessors(telemetry)` then
+    `aprilTagWebcam.init(hardwareMap, telemetry, ballDetector.getProcessors())`
+  - Call `ballDetector.update()` once per loop
+- **Sound:** the Driver Station speaks the color ("red ball") once when a ball comes into
+  view (2 s cooldown), and "got ball" when autonomous pickup finishes. Uses
+  `telemetry.speak()` because the Control Hub has no speaker. On by default:
+  set `SOUND_ENABLED = false` in an OpMode to start silent, or press gamepad1 **BACK** in
+  `TeamBotTeleop_latest` / `BallDetectionTest` to toggle it during a run.
+- **Camera-only robot:** with just a Control Hub, battery, and "Webcam 1" (no motors/servos),
+  `BallDetectionTest` and `TeamBotTeleop_latest` still run: they detect balls and speak the color,
+  including during INIT. For an Autonomous option, use `BallSpeakerAuto`. The Pedro autos need
+  the drivetrain and won't start without it.
+- **Tuning:** Distance depends on the camera focal length (default 822 px, typical for a C270).
+  Put a ball at a known distance `D`, read its radius `r` in `BallDetectionTest`, then call
+  `setFocalLengthPx(D * 2 * r / 2.9)` (2.9 in is the default ball diameter; change it with
+  `setBallDiameter()` if your balls measure differently). Adjust `setContourAreaRange` / `setMinCircularity` if
+  you see false detections.
 
 ---
 
@@ -207,13 +259,32 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
 
 ### Vision & Sensing
 - **Webcam:** AprilTag detection capable
-- **AprilTag Markers:** Tags 20, 21, 22 (0.166m size)
+- **AprilTag Markers:** BIOBUZZ HIVE CELL clusters, tags 30-45 (3.25 in, 36h11)
 - **Odometry:** Pinpoint odometry system
 - **Indicator Light:** RGB LED strip
 
 ### Power & Control
 - Rev Robotics control hub
 - Motor controllers: Rev Expansion Hub
+
+### 8. **BallCollector** (`mechanisms/BallCollector.java`)
+- **Purpose:** Autonomous ball pickup after the Pedro path finishes
+- **Steps:** SEARCH (turn slowly until a ball is seen, 4 s limit) → APPROACH (drive at the ball,
+  steering to keep it centered, intake on) → CAPTURE (drive straight 0.7 s once the ball is
+  within 10 in) → DONE. Always stops with 1 s of auto left.
+- **Used in:** `RedTeamBotAutoNearShort`, `BlueTeamBotAutoNearShort`, `RedTeamBotAutoFarShort`,
+  `BlueTeamBotAutoFarShort` (new `COLLECT_BALL` path state after `END`). Turn off per auto with
+  `COLLECT_BALL_AFTER_PATH = false`.
+- **Return and shoot:** if a ball was captured, the auto drives straight back to `scorePose`,
+  runs the same INTAKE → SHOOT_2 steps used for the preload (feed, shoot left, 2 s delay, shoot
+  right), then drives back to `endPose` so LEAVE still counts. States: `COLLECT_BALL` →
+  `RETURN_TO_SCORE` → `SHOOT_COLLECTED` → `LEAVE_AGAIN`. Pickup gives up with 10 s left
+  (`RETURN_AND_SHOOT_MS`) to save time for this; if under 3 s remain (`LEAVE_TIME_MS`) the robot
+  skips straight to leaving. Turn off with `SHOOT_COLLECTED_BALL = false`.
+- **Safety:** if "Webcam 1" is missing, pickup is skipped instead of crashing the auto.
+- **Tuning:** speeds, gains, and timeouts are constants at the top of the class.
+  `INTAKE_IN_POWER` is 1.0 (same as gamepad2 A in teleop); flip it if the intake spits balls out.
+  Assumes camera and intake face the front of the robot.
 
 ---
 
@@ -223,14 +294,17 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
 |--------|------|--------|--------|---------|
 | TeamBotTeleop | TeleOp | Disabled | meet3_teleop | Primary teleop control |
 | TeamBotTeleop_latest | TeleOp | Active | meet3_teleop | Latest telop with ramp |
-| TeamBotAuto | Auto | Enabled | meet3_auto | Basic autonomous |
+| TeamBotAuto | Auto | Disabled (DECODE) | meet3_auto | Basic autonomous |
 | BlueTeamBotAuto | Pedro | Enabled | meet3_auto | Blue alliance Pedro pathfinding |
-| BlueTeamBotAutoFarShort | Pedro | Enabled | meet3_auto | Blue far, short path |
-| BlueTeamBotAutoNearShort | Pedro | Enabled | meet3_auto | Blue near, short path |
+| BlueTeamBotAutoFarShort | Pedro | Disabled (DECODE) | meet3_auto | Blue far, short path |
+| BlueTeamBotAutoNearShort | Pedro | Disabled (DECODE) | meet3_auto | Blue near, short path |
 | RedTeamBotAuto | Pedro | Enabled | meet3_auto | Red alliance Pedro pathfinding |
-| RedTeamBotAutoFarShort | Pedro | Enabled | meet3_auto | Red far, short path |
+| RedTeamBotAutoFarShort | Pedro | Disabled (DECODE) | meet3_auto | Red far, short path |
 | BlueTeamBotAutoSimple | Auto | Disabled | - | Simplified blue autonomous |
 | RedTeamBotAutoSimple | Auto | Enabled | - | Simplified red autonomous |
+| BIOBUZZ Auto RED / BLUE (`BiobuzzAutoRed`, `BiobuzzAutoBlue`) | Auto | Enabled | - | BIOBUZZ competition autos: `BallSpeakerAuto` with the alliance set, 4 preloaded POLLEN shot first, and driving off the wall at the start (LEAVE) |
+| BallSpeakerAuto | Auto | Enabled | - | Speaks detected ball colors; with drive motors, drives to the closest ball; with an `intake` motor, picks it up (up to 3); with the launcher, finds our HIVE CELL's tag cluster (set `RED_ALLIANCE`), lines up and LAUNCHES; only collects POLLEN + our NECTAR; with `pinpoint` odometry, drives back to 12 in in front of the start (off the wall, so LEAVE counts) or, at the end, to a LOADING ZONE park spot (`PARK_IN_LOADING_ZONE`, `PARK_FIELD_*`). Repeats collect → shoot → return until 30 s runs out, heading home for the last time with 6 s left. Avoids robots: optional `frontDistance` sensor (< 14 in), camera (large red/blue alliance-color blob ahead, ignored when a HIVE CELL is visible or in the top 30% of the image), or Pinpoint bump detection → wait, back up, turn away, resume. Avoids field walls with Pinpoint virtual walls (set `START_FIELD_X/Y/HEADING_DEG` in Pedro 0-144 in coordinates): motion toward a wall within 12 in is removed; stuck 1.5 s → back off and turn. Camera-only OK |
+| BallDetectionTest | TeleOp | Enabled | - | Ball detection telemetry + auto-aim (LB any, X blue, B red, Y yellow) |
 
 ---
 
@@ -241,6 +315,7 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
 - Range and bearing calculation for alignment
 - RGB indicator feedback based on robot state
 - Tolerance-based shoot-ready detection
+- Color-based ball detection (yellow / blue / red) with bearing and distance estimates
 
 ### Shooter System
 - Dual-servo feeder with synchronized pushing
@@ -305,3 +380,20 @@ To enable an OpMode:
 - **Repository:** https://github.com/teamftc31800/ftc31800-robot-controller
 - **Build Tool:** Gradle with Android SDK
 - **Primary Branches:** `meet3_auto`, `meet3_teleop`
+
+
+---
+
+## BIOBUZZ notes (2026-27, from Competition Manual TU04)
+
+- **AUTO** is 30 s. Points in AUTO: LEAVE 3 (not touching the perimeter wall at the end of AUTO),
+  PARK 5 (at least partially in your LOADING ZONE), HIVE TIP 20 (LAUNCH enough into the
+  upward-facing CELL to tip the HIVE).
+- **Scoring elements:** 40 yellow POLLEN (2.8 in), 8 red + 8 blue NECTAR (3.6 in). Each robot
+  starts with 4 pre-loaded POLLEN; 4 POLLEN start in each FLOWER and in each GARDEN.
+- **HIVE:** in the field center, frame pivots ~44 in above the tiles. Each alliance's HIVE has two
+  CELLS (opening ~20 x 14 in, 12 in deep); the one facing up is the target. AprilTag clusters are
+  on the CELL undersides. FIRST notes the HIVE tags move, so they are for aiming, not field
+  localization.
+- **LOADING ZONE:** ~23 x 11 in against the perimeter by your ALLIANCE AREA.
+- **ROBOT SIGNS** must show alliance color, which is what the camera robot detection relies on.

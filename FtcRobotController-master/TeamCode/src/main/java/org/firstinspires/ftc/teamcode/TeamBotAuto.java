@@ -2,6 +2,7 @@
 package org.firstinspires.ftc.teamcode;
 
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
+import com.qualcomm.robotcore.eventloop.opmode.Disabled;
 
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.util.ElapsedTime;
@@ -17,7 +18,10 @@ import com.qualcomm.robotcore.hardware.HardwareMap;
 
 import com.qualcomm.robotcore.util.Range;
 
+// DECODE (2025-26) autonomous: last season's field and goal. Disabled for BIOBUZZ;
+// use BiobuzzAutoRed / BiobuzzAutoBlue instead.
 @Autonomous(name="TeamBotAuto", group="Drive")
+@Disabled
 public class TeamBotAuto extends OpMode {
 
     // Drivetrain motors (312 rpm goBILDA)
