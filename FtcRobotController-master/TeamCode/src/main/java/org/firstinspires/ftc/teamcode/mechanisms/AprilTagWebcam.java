@@ -198,6 +198,12 @@ public class AprilTagWebcam {
         return best;
     }
 
+    /** Our HIVE CELL as a CellTarget (range/bearing to the cluster origin), or null. */
+    public CellTarget getCellTarget(boolean red) {
+        AprilTagDetection cluster = getCellCluster(red);
+        return cluster == null ? null : new CellTarget(cluster.ftcPose.range, cluster.ftcPose.bearing);
+    }
+
     /** True if this detection is within the target range/bearing window. */
     public boolean isInZone(AprilTagDetection detection) {
         return detection != null && isRangeBearingInZone(detection);

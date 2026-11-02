@@ -286,6 +286,27 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
   `INTAKE_IN_POWER` is 1.0 (same as gamepad2 A in teleop); flip it if the intake spits balls out.
   Assumes camera and intake face the front of the robot.
 
+### 9. **LimelightVision** (`mechanisms/LimelightVision.java`)
+- **Purpose:** Limelight 3A smart camera support (USB name "Limelight / Raspberry Pi Compute
+  Module 4"). If a Limelight named **`limelight`** is in the robot configuration,
+  `BallSpeakerAuto`, the BIOBUZZ autos, `TeamBotTeleop_latest`, and `BallDetectionTest` use it
+  instead of "Webcam 1"; otherwise they use the webcam as before.
+- **Pipelines** (set up in the Limelight web interface, `http://limelight.local:5801`):
+  | # | Type | Used for |
+  |---|---|---|
+  | 0 | AprilTag / Fiducial, 36h11, 82.55 mm (3.25 in) tags | HIVE CELL aiming (tags 30-37 red, 38-45 blue) |
+  | 1 | Color, yellow | POLLEN |
+  | 2 | Color, red | red NECTAR |
+  | 3 | Color, blue | blue NECTAR |
+  Enable multiple targets in the color pipelines and set a minimum area.
+- **One pipeline at a time:** the auto uses the HIVE pipeline while finding / lining up on the
+  goal and the POLLEN pipeline otherwise (`LIMELIGHT_BALL_COLOR`). The teleop uses the HIVE
+  pipeline for the shoot-ready light, and the ball pipeline matching the aim button while
+  gamepad1 X (blue) / B (red) / Y or LB (yellow) is held.
+- **Ball distance** comes from the target area (assumes a 640x480 image, ~54.5° wide).
+  Camera-based robot avoidance is webcam-only; the distance sensor and bump detection still work.
+- `CellTarget` (range / bearing to our HIVE CELL) is what the OpModes use, from either camera.
+
 ---
 
 ## OpMode Status Reference

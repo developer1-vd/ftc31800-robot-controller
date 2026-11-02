@@ -12,8 +12,9 @@ import com.qualcomm.robotcore.util.Range;
 import org.firstinspires.ftc.teamcode.mechanisms.RPM_per_dist;
 import org.firstinspires.ftc.teamcode.mechanisms.AprilTagWebcam;
 import org.firstinspires.ftc.teamcode.mechanisms.BallDetector;
+import org.firstinspires.ftc.teamcode.mechanisms.CellTarget;
+import org.firstinspires.ftc.teamcode.mechanisms.LimelightVision;
 import org.firstinspires.ftc.teamcode.mechanisms.RGBIndicatorLight;
-import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
 
 @TeleOp(name="TeamBotTeleop_latest", group="Drive")
 public class TeamBotTeleop_latest extends OpMode {
@@ -22,6 +23,8 @@ public class TeamBotTeleop_latest extends OpMode {
     // AprilTag + RGB (single instance)
     // -----------------------------
     private final AprilTagWebcam aprilTagWebcam = new AprilTagWebcam();
+    // Limelight 3A named "limelight" in the robot configuration; used instead of the webcam
+    private LimelightVision limelight = null;
     private final RGBIndicatorLight light = new RGBIndicatorLight();
 
     private final RPM_per_dist distToRPM = new RPM_per_dist();
@@ -235,19 +238,18 @@ public class TeamBotTeleop_latest extends OpMode {
         }
 
 
-        // AprilTag + ball detection on the same camera
-        ballDetector.buildProcessors(telemetry);
+        // Camera: a Limelight 3A named "limelight" if configured, otherwise "Webcam 1"
+        limelight = LimelightVision.tryCreate(hardwareMap, telemetry);
+        if (limelight != null) {
+            ballDetector.useLimelight(limelight, telemetry);
+            telemetry.addLine("Using Limelight 3A");
+        } else {
+            // AprilTag + ball detection on the same webcam
+            ballDetector.buildProcessors(telemetry);
+            aprilTagWebcam.init(hardwareMap, telemetry, ballDetector.getProcessors());
+            aprilTagWebcam.reportHardwareStatus();
+        }
         ballDetector.setSoundEnabled(SOUND_ENABLED);
-        aprilTagWebcam.init(hardwareMap, telemetry, ballDetector.getProcessors());
-
-        // ~1 foot (12 inches) shoot window
-        aprilTagWebcam.setTargetRange(targetDist);
-        aprilTagWebcam.setRangeTolerance(targetDistTol);      // 10–14 inches
-        aprilTagWebcam.setTargetBearing(targetBearing);
-        aprilTagWebcam.setBearingTolerance(targetBearingTol);
-
-        // Status
-        aprilTagWebcam.reportHardwareStatus();
 
 //        leftFeederLauncher.reportHardwareStatus();
 //        rightFeederLauncher.reportHardwareStatus();
@@ -265,33 +267,31 @@ public class TeamBotTeleop_latest extends OpMode {
         // -----------------------------
         // AprilTag Update + Shoot Ready
         // -----------------------------
-        aprilTagWebcam.update();
+        updateVision();
 
         // BIOBUZZ: aim at a HIVE CELL. Each CELL has an AprilTag cluster on its underside
         // (red 30-37, blue 38-45) whose origin is the center of the CELL opening.
-        AprilTagDetection redCell  = aprilTagWebcam.getCellCluster(true);
-        AprilTagDetection blueCell = aprilTagWebcam.getCellCluster(false);
+        CellTarget redCell  = cellTarget(true);
+        CellTarget blueCell = cellTarget(false);
 
         // Telemetry (optional but useful)
         if (redCell != null) {
             telemetry.addLine("Seeing RED HIVE CELL");
             telemetry.addData("Red CELL Range (in)", "%.1f (target %.0f tol %.0f)",
-                    redCell.ftcPose.range, targetDist, targetDistTol);
+                    redCell.rangeIn, targetDist, targetDistTol);
             telemetry.addData("Red CELL Bearing (deg)", "%.1f (target %.0f tol %.0f)",
-                    redCell.ftcPose.bearing, targetBearing, targetBearingTol);
+                    redCell.bearingDeg, targetBearing, targetBearingTol);
         }
         if (blueCell != null) {
             telemetry.addLine("Seeing BLUE HIVE CELL");
             telemetry.addData("Blue CELL Range (in)", "%.1f (target %.0f tol %.0f)",
-                    blueCell.ftcPose.range, targetDist, targetDistTol);
+                    blueCell.rangeIn, targetDist, targetDistTol);
             telemetry.addData("Blue CELL Bearing (deg)", "%.1f (target %.0f tol %.0f)",
-                    blueCell.ftcPose.bearing, targetBearing, targetBearingTol);
+                    blueCell.bearingDeg, targetBearing, targetBearingTol);
         }
 
         // In-range if either HIVE CELL is in the shoot window
-        boolean inShootRange =
-                aprilTagWebcam.isInZone(redCell) ||
-                        aprilTagWebcam.isInZone(blueCell);
+        boolean inShootRange = inShootZone(redCell) || inShootZone(blueCell);
 
         // Debounce so light doesn't flicker
         if (inShootRange) shootInRangeCount++;
@@ -316,7 +316,6 @@ public class TeamBotTeleop_latest extends OpMode {
         // LB = closest ball, X = blue, B = red, Y = yellow
         // Driver keeps forward/strafe control; only rotation is overridden.
         //----------------------------------
-        ballDetector.update();
 
         // Sound on/off: gamepad1 BACK (one toggle per press)
         if (gamepad1.back && !lastSoundToggle) {
@@ -728,10 +727,43 @@ public class TeamBotTeleop_latest extends OpMode {
 
 
 
+    /** True if the CELL is inside the shoot window (targetDist / targetBearing +/- tolerances). */
+    private boolean inShootZone(CellTarget cell) {
+        return cell != null
+                && Math.abs(cell.rangeIn - targetDist) <= targetDistTol
+                && Math.abs(cell.bearingDeg - targetBearing) <= targetBearingTol;
+    }
+
+    /** A HIVE CELL from whichever camera is in use. */
+    private CellTarget cellTarget(boolean red) {
+        return limelight != null ? limelight.getCellTarget(red) : aprilTagWebcam.getCellTarget(red);
+    }
+
+    /**
+     * Update the camera and ball detection. The Limelight runs one pipeline at a time: the
+     * HIVE (AprilTags, for the shoot-ready light) normally, and the matching ball color while
+     * gamepad1 X (blue) / B (red) / Y or LB (yellow POLLEN) is held for ball auto-aim.
+     */
+    private void updateVision() {
+        if (limelight != null) {
+            BallDetector.BallColor aimColor = null;
+            if (gamepad1.x)      aimColor = BallDetector.BallColor.BLUE;
+            else if (gamepad1.b) aimColor = BallDetector.BallColor.RED;
+            else if (gamepad1.y || gamepad1.left_bumper) aimColor = BallDetector.BallColor.YELLOW;
+            limelight.setMode(aimColor == null ? LimelightVision.Mode.HIVE : LimelightVision.Mode.BALLS,
+                    aimColor == null ? BallDetector.BallColor.YELLOW : aimColor);
+            limelight.update();
+            limelight.displayTelemetry();
+        } else {
+            aprilTagWebcam.update();
+        }
+        ballDetector.update();
+    }
+
     @Override
     public void init_loop() {
         // Detect and announce balls while waiting for Play (works with only a camera attached)
-        ballDetector.update();
+        updateVision();
         ballDetector.displayTelemetry();
         telemetry.update();
     }
@@ -747,7 +779,11 @@ public class TeamBotTeleop_latest extends OpMode {
 
     @Override
     public void stop() {
-        // Closes the shared camera (AprilTags + ball detection)
-        aprilTagWebcam.stop();
+        // Closes the camera (AprilTags + ball detection)
+        if (limelight != null) {
+            limelight.stop();
+        } else {
+            aprilTagWebcam.stop();
+        }
     }
 }

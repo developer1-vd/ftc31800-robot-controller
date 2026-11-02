@@ -39,6 +39,10 @@ import java.util.List;
  *
  * Call update() once per loop, then read getBalls() / getClosestBall().
  *
+ * Limelight 3A: call useLimelight(limelight, telemetry) instead of init/buildProcessors, and
+ * balls come from the Limelight's color pipeline (one color at a time, see LimelightVision).
+ * Distance is then estimated from the target area. Robot detection is webcam-only.
+ *
  * Robots: FTC robots show their alliance color (red/blue signs). Large red/blue blobs that
  * are not round (not a ball) and not thin lines (not floor tape) are reported by
  * getRobotBlobs() / getLargestRobotBlob() so an OpMode can steer clear of them. The HIVE
@@ -125,6 +129,7 @@ public class BallDetector {
     private final EnumMap<BallColor, ColorBlobLocatorProcessor> processors = new EnumMap<>(BallColor.class);
     private VisionPortal visionPortal;   // only set when this class owns the camera
     private Telemetry telemetry;
+    private LimelightVision limelight = null;   // set by useLimelight(); null = webcam
 
     private List<Ball> balls = new ArrayList<>();
 
@@ -233,9 +238,25 @@ public class BallDetector {
     /**
      * Reads the latest blobs from both processors. Call once per loop().
      */
+    /**
+     * Get balls from a Limelight 3A instead of the webcam. The OpModes still call
+     * update() / getBalls() as usual; LimelightVision picks which color pipeline runs.
+     */
+    public void useLimelight(LimelightVision limelight, Telemetry telemetry) {
+        this.limelight = limelight;
+        this.telemetry = telemetry;
+    }
+
+    public boolean usingLimelight() {
+        return limelight != null;
+    }
+
     public void update() {
         List<Ball> found = new ArrayList<>();
         List<RobotBlob> robots = new ArrayList<>();
+        if (limelight != null) {
+            addLimelightBalls(found);
+        }
         for (BallColor color : BallColor.values()) {
             ColorBlobLocatorProcessor processor = processors.get(color);
             if (processor == null) continue;
@@ -354,6 +375,28 @@ public class BallDetector {
      */
     private double radiusToDistance(double radiusPx, BallColor color) {
         return (ballDiameterIn.get(color) * focalLengthPx) / (2.0 * radiusPx);
+    }
+
+    /**
+     * Turns Limelight color targets into Balls. The Limelight reports the target's area (% of
+     * the image); treating it as a circle gives a pixel radius, and the pinhole formula gives
+     * distance, the same as for the webcam.
+     */
+    private void addLimelightBalls(List<Ball> out) {
+        double focalPx = (LimelightVision.IMAGE_WIDTH_PX / 2.0)
+                / Math.tan(Math.toRadians(LimelightVision.HORIZONTAL_FOV_DEG / 2.0));
+        double imageArea = LimelightVision.IMAGE_WIDTH_PX * LimelightVision.IMAGE_HEIGHT_PX;
+        for (LimelightVision.BallSighting s : limelight.getBallSightings()) {
+            double radiusPx = Math.sqrt((s.areaPercent / 100.0) * imageArea / Math.PI);
+            if (radiusPx <= 0) continue;
+            double distance = (ballDiameterIn.get(s.color) * focalPx) / (2.0 * radiusPx);
+            double centerX = LimelightVision.IMAGE_WIDTH_PX / 2.0
+                    + focalPx * Math.tan(Math.toRadians(s.txDeg));
+            double centerY = LimelightVision.IMAGE_HEIGHT_PX / 2.0
+                    - focalPx * Math.tan(Math.toRadians(s.tyDeg));
+            // Limelight tx is + to the RIGHT; Ball.bearing is + to the LEFT
+            out.add(new Ball(s.color, centerX, centerY, radiusPx, 1.0, -s.txDeg, distance));
+        }
     }
 
     /** All balls in the latest frame, closest first. */

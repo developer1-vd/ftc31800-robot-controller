@@ -11,11 +11,12 @@ import com.qualcomm.robotcore.util.Range;
 
 import org.firstinspires.ftc.teamcode.mechanisms.AprilTagWebcam;
 import org.firstinspires.ftc.teamcode.mechanisms.BallDetector;
+import org.firstinspires.ftc.teamcode.mechanisms.CellTarget;
 import org.firstinspires.ftc.teamcode.mechanisms.FeederLauncher;
+import org.firstinspires.ftc.teamcode.mechanisms.LimelightVision;
 import org.firstinspires.ftc.teamcode.mechanisms.PinpointOdometry;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
-import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
 
 /**
  * BIOBUZZ (2026-27) autonomous. Watches for yellow POLLEN and red/blue NECTAR, says the color
@@ -23,7 +24,10 @@ import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
  * or our alliance's NECTAR, see RED_ALLIANCE), drives to it, and picks it up with the intake.
  *
  * Works with whatever hardware is configured:
- * - Camera only (Control Hub + battery + "Webcam 1"): detects and speaks.
+ * - Camera only (Control Hub + battery + "Webcam 1", or a Limelight 3A named "limelight"):
+ *   detects and speaks. With a Limelight it is used instead of the webcam: HIVE pipeline while
+ *   finding / lining up on the goal, the POLLEN pipeline (or LIMELIGHT_BALL_COLOR) otherwise.
+ *   See LimelightVision for the pipeline setup.
  * - + drive motors: also turns and drives to the ball, stopping STOP_DISTANCE_IN away.
  * - + "intake" motor: drives onto the ball with the intake running and picks it up,
  *   says "got ball", then goes after the next one (up to MAX_BALLS).
@@ -199,6 +203,9 @@ public class BallSpeakerAuto extends OpMode {
 
     private final BallDetector ballDetector = new BallDetector();
     private final AprilTagWebcam aprilTagWebcam = new AprilTagWebcam();   // shares "Webcam 1"
+    private LimelightVision limelight = null;   // used instead of the webcam if configured
+    // Which ball color pipeline the Limelight runs while collecting (one color at a time)
+    private static final BallDetector.BallColor LIMELIGHT_BALL_COLOR = BallDetector.BallColor.YELLOW;
     private final FeederLauncher leftLauncher  = new FeederLauncher();
     private final FeederLauncher rightLauncher = new FeederLauncher();
 
@@ -245,9 +252,15 @@ public class BallSpeakerAuto extends OpMode {
             if (m != null) m.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         }
 
-        // Ball detection + AprilTags (for finding the goal) on the same camera
-        ballDetector.buildProcessors(telemetry);
-        aprilTagWebcam.init(hardwareMap, telemetry, ballDetector.getProcessors());
+        // Camera: a Limelight 3A named "limelight" if configured, otherwise "Webcam 1"
+        limelight = LimelightVision.tryCreate(hardwareMap, telemetry);
+        if (limelight != null) {
+            ballDetector.useLimelight(limelight, telemetry);
+        } else {
+            // Ball detection + AprilTags (for finding the goal) on the same webcam
+            ballDetector.buildProcessors(telemetry);
+            aprilTagWebcam.init(hardwareMap, telemetry, ballDetector.getProcessors());
+        }
         ballDetector.setSoundEnabled(SOUND_ENABLED);
 
         if (hasLauncher) {
@@ -289,7 +302,7 @@ public class BallSpeakerAuto extends OpMode {
     @Override
     public void init_loop() {
         // Detect and speak only; the robot must not move during INIT.
-        ballDetector.update();
+        updateVision();
         report();
     }
 
@@ -348,8 +361,7 @@ public class BallSpeakerAuto extends OpMode {
 
     @Override
     public void loop() {
-        ballDetector.update();
-        aprilTagWebcam.update();
+        updateVision();
         if (odometry != null) odometry.update();
         if (ballDetector.hasBall()) lastBallSeenTimer.reset();
         checkTime();
@@ -536,7 +548,7 @@ public class BallSpeakerAuto extends OpMode {
 
     /** Turn to face the goal and drive into the shoot zone. */
     private String lineUp() {
-        AprilTagDetection tag = getGoalTag();
+        CellTarget tag = getGoalTag();
         if (tag == null) {
             setDrivePower(0, 0);
             if (goalLastSeenTimer.milliseconds() > GOAL_LOST_MS) {
@@ -546,8 +558,8 @@ public class BallSpeakerAuto extends OpMode {
         }
         goalLastSeenTimer.reset();
 
-        double bearingError = tag.ftcPose.bearing - SHOOT_BEARING_DEG;   // + = goal is LEFT
-        double rangeError   = tag.ftcPose.range - SHOOT_RANGE_IN;        // + = too far
+        double bearingError = tag.bearingDeg - SHOOT_BEARING_DEG;   // + = goal is LEFT
+        double rangeError   = tag.rangeIn - SHOOT_RANGE_IN;         // + = too far
 
         boolean aimed   = Math.abs(bearingError) <= SHOOT_BEARING_TOL_DEG;
         boolean inRange = Math.abs(rangeError) <= SHOOT_RANGE_TOL_IN;
@@ -564,7 +576,7 @@ public class BallSpeakerAuto extends OpMode {
                     * Range.clip(Math.abs(rangeError) * DRIVE_GAIN, MIN_DRIVE, MAX_DRIVE);
         }
         setDrivePower(forward, turn);
-        return String.format("lining up: %.0f in, %.1f deg", tag.ftcPose.range, tag.ftcPose.bearing);
+        return String.format("lining up: %.0f in, %.1f deg", tag.rangeIn, tag.bearingDeg);
     }
 
     private void startShooting() {
@@ -729,8 +741,7 @@ public class BallSpeakerAuto extends OpMode {
     /** Camera: a big alliance-color blob in our path (ignored while a HIVE CELL is visible). */
     private boolean robotSeenAhead() {
         if (!CAMERA_AVOID) return false;
-        if (aprilTagWebcam.getCellCluster(true) != null
-                || aprilTagWebcam.getCellCluster(false) != null) {
+        if (cellTarget(true) != null || cellTarget(false) != null) {
             return false;   // the big red/blue shape is probably the HIVE
         }
         for (BallDetector.RobotBlob robot : ballDetector.getRobotBlobs()) {
@@ -928,8 +939,29 @@ public class BallSpeakerAuto extends OpMode {
     }
 
     /** Our alliance's visible HIVE CELL (AprilTag cluster), or null. */
-    private AprilTagDetection getGoalTag() {
-        return aprilTagWebcam.getCellCluster(redAlliance());
+    private CellTarget getGoalTag() {
+        return cellTarget(redAlliance());
+    }
+
+    /** A HIVE CELL from whichever camera is in use. */
+    private CellTarget cellTarget(boolean red) {
+        return limelight != null ? limelight.getCellTarget(red) : aprilTagWebcam.getCellTarget(red);
+    }
+
+    /**
+     * Update the camera(s). The Limelight runs one pipeline at a time: the HIVE (AprilTags)
+     * while finding / lining up on the goal, a ball color pipeline the rest of the time.
+     */
+    private void updateVision() {
+        if (limelight != null) {
+            boolean lookingForHive = state == State.FIND_GOAL || state == State.LINE_UP;
+            limelight.setMode(lookingForHive ? LimelightVision.Mode.HIVE : LimelightVision.Mode.BALLS,
+                    LIMELIGHT_BALL_COLOR);
+            limelight.update();
+        } else {
+            aprilTagWebcam.update();
+        }
+        ballDetector.update();
     }
 
     private boolean canShoot() {
@@ -950,6 +982,7 @@ public class BallSpeakerAuto extends OpMode {
             telemetry.addData("Time left", "%.1f s", Math.max(0, msLeft()) / 1000.0);
         }
         telemetry.addData("Alliance", redAlliance() ? "RED" : "BLUE");
+        if (limelight != null) limelight.displayTelemetry();
         telemetry.addData("Sound", ballDetector.isSoundEnabled() ? "ON" : "OFF");
         telemetry.addData("Drive", hasDrive ? "connected" : "none (camera-only)");
         telemetry.addData("Intake", intake != null ? "connected" : "none");
@@ -1006,7 +1039,11 @@ public class BallSpeakerAuto extends OpMode {
         setDrivePower(0, 0);
         setIntake(0);
         stopLaunchers();
-        aprilTagWebcam.stop();   // closes the shared camera
+        if (limelight != null) {
+            limelight.stop();
+        } else {
+            aprilTagWebcam.stop();   // closes the shared camera
+        }
     }
 
     private DcMotor getMotor(String name) {
