@@ -7,6 +7,7 @@ import com.qualcomm.robotcore.util.Range;
 
 import org.firstinspires.ftc.teamcode.mechanisms.BallDetector;
 import org.firstinspires.ftc.teamcode.mechanisms.LimelightVision;
+import org.firstinspires.ftc.teamcode.mechanisms.RobotPlatform;
 
 /**
  * Test OpMode for camera-based ball detection.
@@ -56,6 +57,7 @@ public class BallDetectionTest extends OpMode {
         if (frontRight != null) frontRight.setDirection(DcMotor.Direction.FORWARD);
         if (backRight  != null) backRight.setDirection(DcMotor.Direction.FORWARD);
 
+        telemetry.addData("Robot Controller", RobotPlatform.describe(hardwareMap));
         limelight = LimelightVision.tryCreate(hardwareMap, telemetry);
         if (limelight != null) {
             ballDetector.useLimelight(limelight, telemetry);
@@ -65,7 +67,8 @@ public class BallDetectionTest extends OpMode {
                 ballDetector.init(hardwareMap, telemetry);
             } catch (Exception e) {
                 telemetry.addLine("⚠️ No camera found: no Limelight 3A and no \"Webcam 1\" in the robot"
-                        + " configuration. Run LimelightTest for setup help.");
+                        + " configuration (a phone Robot Controller uses its own camera)."
+                        + " Run LimelightTest for setup help.");
             }
         }
         ballDetector.setSoundEnabled(SOUND_ENABLED);

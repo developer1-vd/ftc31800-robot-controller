@@ -15,6 +15,7 @@ import org.firstinspires.ftc.teamcode.mechanisms.CellTarget;
 import org.firstinspires.ftc.teamcode.mechanisms.FeederLauncher;
 import org.firstinspires.ftc.teamcode.mechanisms.LimelightVision;
 import org.firstinspires.ftc.teamcode.mechanisms.PinpointOdometry;
+import org.firstinspires.ftc.teamcode.mechanisms.RobotPlatform;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 
@@ -252,18 +253,22 @@ public class BallSpeakerAuto extends OpMode {
             if (m != null) m.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         }
 
+        telemetry.addData("Robot Controller", RobotPlatform.describe(hardwareMap));
+
         // Camera: a Limelight 3A named "limelight" if configured, otherwise "Webcam 1"
+        // (or the phone's own camera on a phone Robot Controller)
         limelight = LimelightVision.tryCreate(hardwareMap, telemetry);
         if (limelight != null) {
             ballDetector.useLimelight(limelight, telemetry);
         } else {
             // Ball detection + AprilTags (for finding the goal) on the same webcam
-            ballDetector.buildProcessors(telemetry);
+            ballDetector.buildProcessors(hardwareMap, telemetry);
             try {
                 aprilTagWebcam.init(hardwareMap, telemetry, ballDetector.getProcessors());
             } catch (Exception e) {
                 telemetry.addLine("⚠️ No camera found: no Limelight 3A and no \"Webcam 1\" in the robot"
-                        + " configuration. Run LimelightTest for setup help.");
+                        + " configuration (a phone Robot Controller uses its own camera)."
+                        + " Run LimelightTest for setup help.");
             }
         }
         ballDetector.setSoundEnabled(SOUND_ENABLED);

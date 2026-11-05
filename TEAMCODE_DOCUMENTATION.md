@@ -286,6 +286,15 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
   `INTAKE_IN_POWER` is 1.0 (same as gamepad2 A in teleop); flip it if the intake spits balls out.
   Assumes camera and intake face the front of the robot.
 
+### 10. **RobotPlatform** (`mechanisms/RobotPlatform.java`)
+- **Purpose:** lets the same code run on either Robot Controller allowed by R701: a REV Control Hub
+  or an Android phone (7.0+) + REV Expansion Hub over USB.
+- **Camera choice:** Limelight 3A if configured (chosen by the OpModes), else `Webcam 1`, else, on a
+  phone only, the phone's back camera (`BuiltinCameraDirection.BACK`). On the phone camera,
+  `BallDetector` uses `PHONE_CAMERA_FOCAL_LENGTH_PX` (estimate, ~470 px at 640x480): calibrate it.
+- `RobotPlatform.describe()` is shown in telemetry at INIT (`Robot Controller: ...`).
+- Phone setup steps are in the root README ("Using an Android phone as the Robot Controller").
+
 ### 9. **LimelightVision** (`mechanisms/LimelightVision.java`)
 - **Purpose:** Limelight 3A smart camera support (USB name "Limelight / Raspberry Pi Compute
   Module 4"). If a Limelight named **`limelight`** is in the robot configuration,
