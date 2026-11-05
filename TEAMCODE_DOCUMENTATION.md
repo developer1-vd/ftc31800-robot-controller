@@ -286,6 +286,18 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
   `INTAKE_IN_POWER` is 1.0 (same as gamepad2 A in teleop); flip it if the intake spits balls out.
   Assumes camera and intake face the front of the robot.
 
+### 10. **PhoneGamepadServer** (`mechanisms/PhoneGamepadServer.java`, `assets/phone_gamepad.html`)
+- **Purpose:** practice/demo phone touchscreen controls. A tiny web server on the Control Hub
+  (port **8090**) serves a control page (two joysticks, D-pad, A/B/X/Y, bumpers, triggers,
+  BACK/START, Driver 1 / Driver 2 switch). The phone sends its state ~20 times a second.
+- **Used by:** `TeamBotTeleop_Phone (practice)` = `TeamBotTeleop_latest` + phone input. The SDK
+  refreshes `gamepad1/2` from the Driver Station before every loop; the phone input is blended in
+  each loop (sticks/triggers: whichever is pushed further; buttons: either pressed).
+- **Safety:** no update for 300 ms (page closed, Wi-Fi lost, screen off) = phone input released.
+- **Not for matches** (only the Driver Station may control the robot; no extra devices on the
+  robot Wi-Fi during a match). For a phone that IS allowed in matches, run the FTC Driver Station
+  app on it (see the README, "Driving from a phone").
+
 ### 9. **LimelightVision** (`mechanisms/LimelightVision.java`)
 - **Purpose:** Limelight 3A smart camera support (USB name "Limelight / Raspberry Pi Compute
   Module 4"). If a Limelight named **`limelight`** is in the robot configuration,

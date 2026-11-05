@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>31800 Phone Controller</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #1a1d24; --line: #2c313c; --text: #e8eaf0; --muted: #8a91a0;
+    --accent: #4f8cff; --ok: #3ccf7a; --bad: #ff5d5d;
+    --a: #3ccf7a; --b: #ff5d5d; --x: #4f8cff; --y: #f5c542;
+  }
+  * { box-sizing: border-box; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 600 14px/1.2 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden;
+    touch-action: none; }
+  body { display: flex; flex-direction: column; }
+  .bar { display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+    padding-top: max(8px, env(safe-area-inset-top)); border-bottom: 1px solid var(--line); }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--bad); flex: none; }
+  .dot.ok { background: var(--ok); }
+  .status { color: var(--muted); font-weight: 500; flex: 1; min-width: 0; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; }
+  .seg { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; flex: none; }
+  .seg button { background: none; border: 0; color: var(--muted); padding: 6px 12px; font: inherit; }
+  .seg button.on { background: var(--accent); color: #fff; }
+  .note { padding: 4px 12px; color: var(--muted); font-weight: 500; font-size: 12px; }
+  /* Landscape (phone held sideways): each half has its stick and buttons side by side */
+  .pad { flex: 1; min-height: 0; display: grid;
+    grid-template-columns: 1fr 1fr; grid-template-rows: auto minmax(0, 1fr); gap: 8px;
+    padding: 6px max(12px, env(safe-area-inset-left)) max(8px, env(safe-area-inset-bottom)); }
+  .shoulders { grid-column: 1 / -1; display: grid; grid-template-columns: 2fr 2fr 1fr 1fr 2fr 2fr; gap: 8px; }
+  .side { display: flex; flex-direction: row; align-items: center; justify-content: space-evenly; gap: 8px; min-height: 0; }
+  .btn { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; color: var(--text);
+    display: flex; align-items: center; justify-content: center; height: 40px; font-size: 15px; }
+  .shoulders .btn.small { font-size: 11px; color: var(--muted); }
+  .btn.down { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .stick { position: relative; width: min(24vw, calc(100vh - 140px), 240px); aspect-ratio: 1; border-radius: 50%;
+    background: var(--panel); border: 2px solid var(--line); flex: none; }
+  .knob { position: absolute; left: 50%; top: 50%; width: 38%; height: 38%; margin: -19% 0 0 -19%;
+    border-radius: 50%; background: #3a404d; border: 2px solid #59606f; pointer-events: none; }
+  .stick.active { border-color: var(--accent); }
+  .cluster { --s: min(52px, calc((100vh - 160px) / 3)); display: grid;
+    grid-template-columns: repeat(3, var(--s)); grid-template-rows: repeat(3, var(--s)); gap: 4px; flex: none; }
+  .cluster .btn { height: var(--s); border-radius: 50%; font-size: 18px; }
+  .dpad .btn { border-radius: 10px; }
+  .face .a { color: var(--a); } .face .b { color: var(--b); } .face .x { color: var(--x); } .face .y { color: var(--y); }
+  .face .btn.down { color: #fff; }
+  /* Portrait: halves stacked, stick above its buttons */
+  @media (orientation: portrait) {
+    .pad { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr); }
+    .side { flex-direction: column; justify-content: space-evenly; }
+    .stick { width: min(46vw, calc((100vh - 200px) / 4), 240px); }
+    .cluster { --s: min(52px, calc((100vh - 200px) / 12)); }
+  }
+</style>
+</head>
+<body>
+  <div class="bar">
+    <div class="dot" id="dot"></div>
+    <div class="status" id="status">Connecting…</div>
+    <div class="seg" role="group" aria-label="Which gamepad">
+      <button id="p1" class="on">Driver 1</button>
+      <button id="p2">Driver 2</button>
+    </div>
+  </div>
+  <div class="note">Practice only — the real gamepads still work. Not allowed in matches.</div>
+
+  <div class="pad">
+    <div class="shoulders">
+      <div class="btn" data-trig="lt">LT</div>
+      <div class="btn" data-btn="16">LB</div>
+      <div class="btn small" data-btn="1024">BACK</div>
+      <div class="btn small" data-btn="2048">START</div>
+      <div class="btn" data-btn="32">RB</div>
+      <div class="btn" data-trig="rt">RT</div>
+    </div>
+
+    <div class="side">
+      <div class="stick" id="ls"><div class="knob"></div></div>
+      <div class="cluster dpad">
+        <span></span><div class="btn" data-btn="64">▲</div><span></span>
+        <div class="btn" data-btn="256">◀</div><span></span><div class="btn" data-btn="512">▶</div>
+        <span></span><div class="btn" data-btn="128">▼</div><span></span>
+      </div>
+    </div>
+
+    <div class="side">
+      <div class="cluster face">
+        <span></span><div class="btn y" data-btn="8">Y</div><span></span>
+        <div class="btn x" data-btn="4">X</div><span></span><div class="btn b" data-btn="2">B</div>
+        <span></span><div class="btn a" data-btn="1">A</div><span></span>
+      </div>
+      <div class="stick" id="rs"><div class="knob"></div></div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  // State sent to the robot (bit values must match PhoneGamepadServer.java)
+  var st = { p: 1, lx: 0, ly: 0, rx: 0, ry: 0, lt: 0, rt: 0, b: 0 };
+  var held = {};   // pointerId -> { kind, el, bit|trig|stick }
+
+  // Driver 1 / Driver 2 switch
+  var p1 = document.getElementById('p1'), p2 = document.getElementById('p2');
+  function setPad(n) {
+    st.p = n; p1.classList.toggle('on', n === 1); p2.classList.toggle('on', n === 2);
+  }
+  p1.addEventListener('click', function () { setPad(1); });
+  p2.addEventListener('click', function () { setPad(2); });
+
+  // Keep getting this finger's events even if it slides off the control (best effort)
+  function capture(el, e) { try { el.setPointerCapture(e.pointerId); } catch (err) {} }
+
+  // Joysticks
+  function stick(id, xKey, yKey) {
+    var el = document.getElementById(id), knob = el.querySelector('.knob');
+    function move(e) {
+      var r = el.getBoundingClientRect(), radius = r.width / 2;
+      var dx = (e.clientX - (r.left + radius)) / radius, dy = (e.clientY - (r.top + radius)) / radius;
+      var len = Math.hypot(dx, dy);
+      if (len > 1) { dx /= len; dy /= len; }
+      // Gamepad convention: right = +x, UP = -y
+      st[xKey] = +dx.toFixed(3); st[yKey] = +dy.toFixed(3);
+      knob.style.transform = 'translate(' + (dx * radius * 0.62) + 'px,' + (dy * radius * 0.62) + 'px)';
+    }
+    function reset() { st[xKey] = 0; st[yKey] = 0; knob.style.transform = ''; el.classList.remove('active'); }
+    el.addEventListener('pointerdown', function (e) {
+      capture(el, e); held[e.pointerId] = { reset: reset };
+      el.classList.add('active'); move(e);
+    });
+    el.addEventListener('pointermove', function (e) { if (held[e.pointerId]) move(e); });
+    return reset;
+  }
+  stick('ls', 'lx', 'ly');
+  stick('rs', 'rx', 'ry');
+
+  // Buttons and triggers (hold to press)
+  document.querySelectorAll('[data-btn],[data-trig]').forEach(function (el) {
+    var bit = +el.getAttribute('data-btn') || 0, trig = el.getAttribute('data-trig');
+    function press() { el.classList.add('down'); if (trig) st[trig] = 1; else st.b |= bit; }
+    function release() { el.classList.remove('down'); if (trig) st[trig] = 0; else st.b &= ~bit; }
+    el.addEventListener('pointerdown', function (e) {
+      capture(el, e); held[e.pointerId] = { reset: release }; press();
+      if (navigator.vibrate) navigator.vibrate(10);
+    });
+  });
+
+  function end(e) { var h = held[e.pointerId]; if (h) { h.reset(); delete held[e.pointerId]; } }
+  document.addEventListener('pointerup', end);
+  document.addEventListener('pointercancel', end);
+  // Safety: if the page is hidden (screen off, app switch), let go of everything
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) Object.keys(held).forEach(function (id) { held[id].reset(); delete held[id]; });
+  });
+
+  // Send ~20 times a second; the robot treats >300 ms of silence as "let go"
+  var dot = document.getElementById('dot'), status = document.getElementById('status');
+  var busy = false, lastOk = 0;
+  function send() {
+    if (busy || document.hidden) return;
+    busy = true;
+    var q = 'p=' + st.p + '&lx=' + st.lx + '&ly=' + st.ly + '&rx=' + st.rx + '&ry=' + st.ry +
+            '&lt=' + st.lt + '&rt=' + st.rt + '&b=' + st.b;
+    fetch('/input?' + q, { cache: 'no-store' })
+      .then(function (r) { if (r.ok) lastOk = Date.now(); })
+      .catch(function () {})
+      .then(function () { busy = false; });
+  }
+  setInterval(send, 50);
+  setInterval(function () {
+    var ok = Date.now() - lastOk < 600;
+    dot.classList.toggle('ok', ok);
+    status.textContent = ok ? 'Connected to robot — controlling gamepad ' + st.p
+                            : 'Not connected — join the robot Wi-Fi and start TeamBotTeleop_Phone';
+  }, 250);
+})();
+</script>
+</body>
+</html>
