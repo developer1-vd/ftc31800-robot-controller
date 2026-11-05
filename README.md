@@ -56,7 +56,6 @@ All robot code that gets built is under `FtcRobotController-master/TeamCode/src/
 
 - `mechanisms/BallDetector.java` — POLLEN / NECTAR detection, distance and bearing; spots robots by their alliance-color signs
 - `mechanisms/AprilTagWebcam.java` — HIVE CELL AprilTag clusters (SDK 12)
-- `mechanisms/RobotPlatform.java` — runs on a **REV Control Hub or an Android phone + Expansion Hub**; picks the camera (webcam, or the phone's own camera)
 - `mechanisms/LimelightVision.java` — **Limelight 3A** support: used instead of the webcam when a Limelight named `limelight` is configured (pipeline setup in `TEAMCODE_DOCUMENTATION.md`)
 - `mechanisms/BallCollector.java`, `FeederLauncher.java`, `PinpointOdometry.java`, `RGBIndicatorLight.java` — subsystems
 - `pedroPathing/` — Pedro Pathing setup; the Near/Far Short autos in it are **last season's (DECODE)** and are disabled
@@ -127,19 +126,6 @@ adb install -r apk/TeamCode-debug.apk
 3. Deploy the `TeamCode` app to the Control Hub.
 4. Make sure the robot configuration names match the code (e.g. `Webcam 1` or `limelight`, `left_front_drive`, `intake`, `launcher`, `pinpoint`).
 5. Select the OpMode on the Driver Station and run it. For AUTO, enable the 30-second timer.
-
-### Using an Android phone as the Robot Controller
-
-FTC rule R701 allows either a **REV Control Hub** (the officially supported one) or an **Android phone connected by USB to a REV Expansion Hub**. The same APK and OpModes work on both; only one Robot Controller is used on a robot at a time.
-
-1. Use a phone with **Android 7.0 or newer**. Install the APK (from `./build-apk.sh` or GitHub Actions) with `adb install -r apk/TeamCode-debug.apk` over USB, or run from Android Studio with the phone plugged in (USB debugging on).
-2. Connect the phone to the **Expansion Hub** with a USB OTG cable (phone USB port → Expansion Hub mini-USB). Power the Expansion Hub from the robot battery.
-3. On the phone: **Airplane Mode on, Wi-Fi on, Bluetooth off** (R711). Name the Robot Controller **`31800-RC`** (R705).
-4. Pair the Driver Station with the phone (Wi-Fi Direct): on the Driver Station, *Settings → Pair with Robot Controller*.
-5. Configure Robot → Scan on the phone, using the **same device names** as on the Control Hub (`left_front_drive`, `intake`, `launcher`, `pinpoint`, `Webcam 1`, ...).
-6. **Camera:** with a `Webcam 1` configured it is used as usual; without one, the code uses the **phone's back camera** (mount the phone so the back camera faces forward). Ball distances on the phone camera use an estimated focal length (`RobotPlatform.PHONE_CAMERA_FOCAL_LENGTH_PX`); calibrate it with `BallDetectionTest`. The Limelight 3A is designed for the Control Hub; on a phone, use a webcam or the phone camera.
-
-Telemetry shows which one is running, e.g. `Robot Controller: Android phone + Expansion Hub, phone back camera`.
 
 ### Enabling an OpMode
 

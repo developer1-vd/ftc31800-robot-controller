@@ -5,6 +5,7 @@ import android.util.Size;
 import com.qualcomm.robotcore.hardware.HardwareMap;
 
 import org.firstinspires.ftc.robotcore.external.Telemetry;
+import org.firstinspires.ftc.robotcore.external.hardware.camera.WebcamName;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.vision.VisionPortal;
@@ -69,9 +70,9 @@ public class AprilTagWebcam {
                 .setTagLibrary(library)       // BIOBUZZ CELL clusters
                 .build();
 
-        // Open "Webcam 1" (or the phone's back camera on a phone Robot Controller)
-        // and attach the AprilTag processor
-        visionPortal = RobotPlatform.setCamera(new VisionPortal.Builder(), hwMap)
+        // Open camera and attach AprilTag processor
+        visionPortal = new VisionPortal.Builder()
+                .setCamera(hwMap.get(WebcamName.class, "Webcam 1"))
                 .setCameraResolution(new Size(640, 480))   // Camera resolution
                 .addProcessor(aprilTagProcessor)
                 .addProcessors(extraProcessors)

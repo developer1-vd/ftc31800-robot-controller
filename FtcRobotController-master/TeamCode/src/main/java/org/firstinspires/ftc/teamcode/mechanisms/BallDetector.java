@@ -7,6 +7,7 @@ import com.qualcomm.robotcore.hardware.HardwareMap;
 import com.qualcomm.robotcore.util.ElapsedTime;
 
 import org.firstinspires.ftc.robotcore.external.Telemetry;
+import org.firstinspires.ftc.robotcore.external.hardware.camera.WebcamName;
 import org.firstinspires.ftc.vision.VisionPortal;
 import org.firstinspires.ftc.vision.VisionProcessor;
 import org.firstinspires.ftc.vision.opencv.Circle;
@@ -166,15 +167,14 @@ public class BallDetector {
     private static final double ANNOUNCE_COOLDOWN_MS = 2000; // never speak more often than this
 
     /**
-     * Standalone init: opens "Webcam 1" (or the phone's camera on a phone Robot Controller)
-     * with only the ball processors attached.
+     * Standalone init: opens "Webcam 1" with only the ball processors attached.
      */
     public void init(HardwareMap hwMap, Telemetry telemetry) {
         this.telemetry = telemetry;
         buildProcessors();
-        matchCamera(hwMap);
 
-        visionPortal = RobotPlatform.setCamera(new VisionPortal.Builder(), hwMap)
+        visionPortal = new VisionPortal.Builder()
+                .setCamera(hwMap.get(WebcamName.class, "Webcam 1"))
                 .setCameraResolution(new Size(IMAGE_WIDTH, IMAGE_HEIGHT))
                 .addProcessors(getProcessors())
                 .build();
@@ -187,19 +187,6 @@ public class BallDetector {
     public void buildProcessors(Telemetry telemetry) {
         this.telemetry = telemetry;
         buildProcessors();
-    }
-
-    /** Same, and also match the distance math to the camera that will be used. */
-    public void buildProcessors(HardwareMap hwMap, Telemetry telemetry) {
-        buildProcessors(telemetry);
-        matchCamera(hwMap);
-    }
-
-    /** On a phone Robot Controller using its own camera, use the phone focal length. */
-    private void matchCamera(HardwareMap hwMap) {
-        if (RobotPlatform.usesPhoneCamera(hwMap)) {
-            focalLengthPx = RobotPlatform.PHONE_CAMERA_FOCAL_LENGTH_PX;
-        }
     }
 
     private void buildProcessors() {
