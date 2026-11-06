@@ -53,6 +53,8 @@ All robot code that gets built is under `FtcRobotController-master/TeamCode/src/
 | `TeamBotTeleop_latest` | TeleOp | Main driver control; HIVE CELL shoot-ready light; ball auto-aim (gamepad1 LB / X / B / Y) |
 | `BallSpeakerAuto` | Auto | Practice version of the BIOBUZZ auto (no preloads); works with just a camera too |
 | `BallDetectionTest` | TeleOp | Ball detection telemetry and tuning |
+| `TeamBotTeleop_Phone (practice)` | TeleOp | Same as `TeamBotTeleop_latest`, plus phone touchscreen controls. **Practice only** |
+| `LimelightTest` | TeleOp | Limelight 3A connection and pipeline check |
 
 - `mechanisms/BallDetector.java` — POLLEN / NECTAR detection, distance and bearing; spots robots by their alliance-color signs
 - `mechanisms/AprilTagWebcam.java` — HIVE CELL AprilTag clusters (SDK 12)
@@ -126,6 +128,26 @@ adb install -r apk/TeamCode-debug.apk
 3. Deploy the `TeamCode` app to the Control Hub.
 4. Make sure the robot configuration names match the code (e.g. `Webcam 1` or `limelight`, `left_front_drive`, `intake`, `launcher`, `pinpoint`).
 5. Select the OpMode on the Driver Station and run it. For AUTO, enable the 30-second timer.
+
+### Driving from a phone
+
+There are two ways, and you can use both:
+
+**1. Phone as the Driver Station (allowed in matches).** FIRST's Driver Station app runs on Android phones as well as the REV Driver Hub (the official one). Only one Driver Station may be connected and powered on at a time, so the phone is a replacement or a spare for the Driver Hub, not a second one running together.
+
+1. Install the **FTC Driver Station** app, version **12.0** to match the robot (from FIRST's [FtcDriverStation releases](https://github.com/FIRST-Tech-Challenge/FtcDriverStation/releases)).
+2. Phone settings: **Airplane Mode on, Wi-Fi on, Bluetooth off**; forget other Wi-Fi networks (rule R711). Name it **`31800-DS`** (R705).
+3. Plug the gamepad(s) into the phone with a **USB OTG adapter** (a powered USB hub for two gamepads).
+4. In the app: *Settings → Pair with Robot Controller* → choose the Control Hub's network. Drive exactly as with the Driver Hub.
+
+**2. Phone touchscreen controls (practice / demos only).** On-screen joysticks and buttons that work at the same time as the real gamepads. Not allowed in matches: only the Driver Station may control the robot, and no other device may be on the robot's Wi-Fi during a match.
+
+1. On the Driver Station, start **`TeamBotTeleop_Phone (practice)`**.
+2. Connect the phone to the **Control Hub's Wi-Fi** (its name and password are set in the REV Hardware Client).
+3. Open **http://192.168.43.1:8090** in the phone's browser and hold it sideways. Pick **Driver 1** or **Driver 2** to control gamepad 1 or gamepad 2.
+4. If the page closes or Wi-Fi drops, the phone's input lets go within 0.3 s; the real gamepads keep working.
+
+The Limelight stays plugged into the Control Hub, which stays the Robot Controller in both cases.
 
 ### Enabling an OpMode
 
