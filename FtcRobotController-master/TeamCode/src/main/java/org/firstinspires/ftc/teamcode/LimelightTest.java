@@ -77,6 +77,16 @@ public class LimelightTest extends OpMode {
             telemetry.addData("Temp / CPU", "%.0f C / %.0f%%", status.getTemp(), status.getCpu());
             telemetry.addData("Pipeline on device", "%d (%s)",
                     status.getPipelineIndex(), status.getPipelineType());
+            // Is this pipeline the TYPE the robot code expects? (most common setup problem)
+            String type = status.getPipelineType() == null ? "" : status.getPipelineType();
+            boolean wantTags = status.getPipelineIndex() == LimelightVision.HIVE_PIPELINE;
+            boolean ok = wantTags ? type.contains("fiducial") : type.contains("color");
+            if (!ok) {
+                telemetry.addLine("⚠️ WRONG PIPELINE TYPE: pipeline " + status.getPipelineIndex() + " is \""
+                        + type + "\" but the robot code needs "
+                        + (wantTags ? "AprilTag (Fiducial Markers, 36h11)." : "Color (tuned to the ball color)."));
+                telemetry.addLine("   Fix it in the Limelight web page (see LimelightVision.java).");
+            }
         }
 
         // D-pad switches pipelines
@@ -94,16 +104,33 @@ public class LimelightTest extends OpMode {
         telemetry.addData("Requested pipeline", "%d  (dpad: up 0 HIVE, right 1 POLLEN, down 2 red, left 3 blue)",
                 pipeline);
         LLResult result = limelight.getLatestResult();
-        if (result == null || !result.isValid()) {
-            telemetry.addLine("No valid target (point it at a ball / HIVE tag).");
+        if (result == null) {
+            telemetry.addLine("No results from the Limelight yet.");
+        } else if (!result.isValid()) {
+            telemetry.addData("Result", "pipeline %d (%s): NO TARGET", result.getPipelineIndex(),
+                    result.getPipelineType());
+            telemetry.addLine(pipeline == LimelightVision.HIVE_PIPELINE
+                    ? "Point it at a HIVE CELL tag (IDs 30-45, 36h11)."
+                    : "Point it at a ball. If a ball in view isn't found, retune this pipeline's color"
+                      + " (Thresholding: use the color picker on the ball).");
         } else {
-            telemetry.addData("Result pipeline", "%d (%s)", result.getPipelineIndex(), result.getPipelineType());
+            telemetry.addData("Result", "pipeline %d (%s)", result.getPipelineIndex(), result.getPipelineType());
             telemetry.addData("tx / ty / ta", "%.1f / %.1f / %.2f%%", result.getTx(), result.getTy(), result.getTa());
             for (LLResultTypes.FiducialResult tag : result.getFiducialResults()) {
-                telemetry.addData("Tag", "id %d  tx %.1f  ty %.1f", tag.getFiducialId(),
-                        tag.getTargetXDegrees(), tag.getTargetYDegrees());
+                int id = tag.getFiducialId();
+                boolean hive = id >= 30 && id <= 45;
+                telemetry.addData("Tag", "id %d %s  tx %.1f  area %.2f%%", id,
+                        hive ? (id <= 37 ? "(RED HIVE CELL)" : "(BLUE HIVE CELL)") : "(not a HIVE tag; ignored)",
+                        tag.getTargetXDegrees(), tag.getTargetArea());
             }
-            telemetry.addData("Color targets", result.getColorResults().size());
+            int colorCount = result.getColorResults().size();
+            if (colorCount > 0) {
+                telemetry.addData("Color targets", colorCount);
+                for (LLResultTypes.ColorResult blob : result.getColorResults()) {
+                    telemetry.addData("  blob", "tx %.1f  ty %.1f  area %.2f%%", blob.getTargetXDegrees(),
+                            blob.getTargetYDegrees(), blob.getTargetArea());
+                }
+            }
         }
         telemetry.update();
     }

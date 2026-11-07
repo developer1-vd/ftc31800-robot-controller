@@ -7,6 +7,7 @@ import com.qualcomm.robotcore.hardware.HardwareMap;
 
 import org.firstinspires.ftc.robotcore.external.Telemetry;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
+import org.firstinspires.ftc.robotcore.external.navigation.Pose3D;
 import org.firstinspires.ftc.robotcore.external.navigation.Position;
 
 import java.util.ArrayList;
@@ -24,8 +25,16 @@ import java.util.List;
  *   Pipeline 2  RED_NECTAR_PIPELINE   Color, tuned to the red NECTAR ball
  *   Pipeline 3  BLUE_NECTAR_PIPELINE  Color, tuned to the blue NECTAR ball
  *
- * For the color pipelines, enable multiple targets ("Smart Speckle"/"Max targets" > 1) so every
- * ball in view is reported, and set a minimum area so specks are ignored.
+ * A new Limelight does NOT have these: until they are set up it detects nothing useful.
+ * For each pipeline: pick it from the pipeline list at the top of the web page, set its
+ * Pipeline Type on the Input tab, set it up as below, and press Save:
+ *  - Pipeline 0: type Fiducial Markers (AprilTag), family 36h11, size 82.55 mm. "Full 3D" is
+ *    optional (without it, distance is estimated from the tag size).
+ *  - Pipelines 1-3: type Color. On the Thresholding tab, use the color picker on a real ball
+ *    (in your field lighting) so only the ball is highlighted, set a minimum target area so
+ *    specks are ignored, and allow multiple targets so every ball in view is reported.
+ * Then run LimelightTest: it shows each pipeline's type, flags a wrong type, and lists what
+ * it sees (tag IDs, color targets).
  *
  * Hardware: plug the Limelight into one of the Control Hub's USB ports (it is powered over
  * USB), wait ~30 s for it to boot (its LED turns green), then on the Driver Station:
@@ -51,6 +60,9 @@ public class LimelightVision {
     public static final double IMAGE_WIDTH_PX  = 640;
     public static final double IMAGE_HEIGHT_PX = 480;
     public static final double HORIZONTAL_FOV_DEG = 54.5;
+
+    // BIOBUZZ AprilTags are 3.25 in (82.55 mm) squares, family 36h11
+    public static final double TAG_SIZE_IN = 3.25;
 
     // BIOBUZZ HIVE CELL AprilTag IDs (clusters under each CELL)
     private static final int RED_FIRST_ID = 30, RED_LAST_ID = 37;
@@ -167,23 +179,49 @@ public class LimelightVision {
         int first = red ? RED_FIRST_ID : BLUE_FIRST_ID;
         int last  = red ? RED_LAST_ID  : BLUE_LAST_ID;
 
-        double sumX = 0, sumY = 0, sumZ = 0;
-        int count = 0;
+        double sumTx = 0, sumRange3d = 0, sumRangeFromSize = 0;
+        int count = 0, count3d = 0;
         for (LLResultTypes.FiducialResult tag : result.getFiducialResults()) {
             int id = tag.getFiducialId();
             if (id < first || id > last) continue;
-            // Camera space: x = right, y = down, z = forward
-            Position p = tag.getTargetPoseCameraSpace().getPosition().toUnit(DistanceUnit.INCH);
-            sumX += p.x;
-            sumY += p.y;
-            sumZ += p.z;
             count++;
+            // Bearing: tx works in every AprilTag pipeline (+ = right on the Limelight)
+            sumTx += tag.getTargetXDegrees();
+            // Range from the size of the tag in the image (works without 3D)
+            sumRangeFromSize += rangeFromTagArea(tag.getTargetArea());
+            // Range from the 3D pose, only if "Full 3D" is on (otherwise it's all zeros)
+            Pose3D pose = tag.getTargetPoseCameraSpace();
+            if (pose != null) {
+                Position p = pose.getPosition().toUnit(DistanceUnit.INCH);   // x right, y down, z forward
+                if (p.z > 1.0) {
+                    sumRange3d += Math.sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
+                    count3d++;
+                }
+            }
         }
         if (count == 0) return null;
-        double x = sumX / count, y = sumY / count, z = sumZ / count;
-        double range = Math.sqrt(x * x + y * y + z * z);
-        double bearing = Math.toDegrees(Math.atan2(-x, z));   // + = LEFT, like AprilTag bearing
+        double range = count3d > 0 ? sumRange3d / count3d : sumRangeFromSize / count;
+        double bearing = -sumTx / count;   // + = LEFT, like AprilTag ftcPose.bearing
         return new CellTarget(range, bearing);
+    }
+
+    /**
+     * Distance to a 3.25 in tag from how much of the image it fills (pinhole camera model).
+     * Rough when the tag is seen at a steep angle; used only when 3D tracking is off.
+     */
+    private static double rangeFromTagArea(double areaPercent) {
+        if (areaPercent <= 0) return Double.NaN;
+        double focalPx = (IMAGE_WIDTH_PX / 2.0) / Math.tan(Math.toRadians(HORIZONTAL_FOV_DEG / 2.0));
+        double sidePx = Math.sqrt((areaPercent / 100.0) * IMAGE_WIDTH_PX * IMAGE_HEIGHT_PX);
+        return TAG_SIZE_IN * focalPx / sidePx;
+    }
+
+    /** Tag IDs in the latest HIVE-pipeline result (any ID, for troubleshooting). */
+    public List<Integer> getSeenTagIds() {
+        List<Integer> ids = new ArrayList<>();
+        if (result == null || pipeline != HIVE_PIPELINE) return ids;
+        for (LLResultTypes.FiducialResult tag : result.getFiducialResults()) ids.add(tag.getFiducialId());
+        return ids;
     }
 
     /** Balls from the current color pipeline (empty in HIVE mode). */
@@ -206,6 +244,9 @@ public class LimelightVision {
         telemetry.addData("Limelight", "%s, pipeline %d%s",
                 limelight.isConnected() ? "connected" : "NOT CONNECTED", pipeline,
                 result == null ? " (no target)" : "");
+        if (pipeline == HIVE_PIPELINE && result != null) {
+            telemetry.addData("Limelight tags seen", "%s (HIVE CELLS are 30-45)", getSeenTagIds());
+        }
     }
 
     public void stop() {

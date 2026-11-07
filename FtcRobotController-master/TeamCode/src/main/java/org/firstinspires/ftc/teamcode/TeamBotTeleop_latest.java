@@ -25,6 +25,8 @@ public class TeamBotTeleop_latest extends OpMode {
     private final AprilTagWebcam aprilTagWebcam = new AprilTagWebcam();
     // Limelight 3A named "limelight" in the robot configuration; used instead of the webcam
     private LimelightVision limelight = null;
+    // With both cameras: the Limelight only watches AprilTags, the webcam finds the balls
+    private boolean limelightTagsOnly = false;
     private final RGBIndicatorLight light = new RGBIndicatorLight();
 
     private final RPM_per_dist distToRPM = new RPM_per_dist();
@@ -240,7 +242,12 @@ public class TeamBotTeleop_latest extends OpMode {
 
         // Camera: a Limelight 3A named "limelight" if configured, otherwise "Webcam 1"
         limelight = LimelightVision.tryCreate(hardwareMap, telemetry);
-        if (limelight != null) {
+        if (limelight != null && BallDetector.webcamConfigured(hardwareMap)) {
+            // Both cameras: Limelight = HIVE AprilTags only, C270 webcam = all balls
+            limelightTagsOnly = true;
+            ballDetector.init(hardwareMap, telemetry);
+            telemetry.addLine("Cameras: Limelight for AprilTags, Webcam 1 for balls");
+        } else if (limelight != null) {
             ballDetector.useLimelight(limelight, telemetry);
             telemetry.addLine("Using Limelight 3A");
         } else {
@@ -750,7 +757,11 @@ public class TeamBotTeleop_latest extends OpMode {
      * gamepad1 X (blue) / B (red) / Y or LB (yellow POLLEN) is held for ball auto-aim.
      */
     private void updateVision() {
-        if (limelight != null) {
+        if (limelight != null && limelightTagsOnly) {
+            limelight.setMode(LimelightVision.Mode.HIVE, BallDetector.BallColor.YELLOW);
+            limelight.update();
+            limelight.displayTelemetry();
+        } else if (limelight != null) {
             BallDetector.BallColor aimColor = null;
             if (gamepad1.x)      aimColor = BallDetector.BallColor.BLUE;
             else if (gamepad1.b) aimColor = BallDetector.BallColor.RED;
@@ -790,5 +801,6 @@ public class TeamBotTeleop_latest extends OpMode {
         } else {
             aprilTagWebcam.stop();
         }
+        ballDetector.stop();   // closes the webcam if the ball detector opened it
     }
 }

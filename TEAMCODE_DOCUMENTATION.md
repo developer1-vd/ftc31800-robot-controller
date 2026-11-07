@@ -311,16 +311,30 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
   | 2 | Color, red | red NECTAR |
   | 3 | Color, blue | blue NECTAR |
   Enable multiple targets in the color pipelines and set a minimum area.
-- **One pipeline at a time:** the auto uses the HIVE pipeline while finding / lining up on the
+- **Both cameras (Limelight + `Webcam 1`):** each camera does one job, all the time. The Limelight
+  stays on pipeline 0 and only watches the HIVE AprilTags; the Logitech C270 finds all the balls
+  (yellow POLLEN, red and blue NECTAR) with `BallDetector`, including camera robot avoidance. Only
+  pipeline 0 needs setting up on the Limelight in this mode. Used by `BallSpeakerAuto`, the
+  BIOBUZZ autos and `TeamBotTeleop_latest`; `BallDetectionTest` uses the webcam for balls.
+- **Limelight only — one pipeline at a time:** the auto uses the HIVE pipeline while finding / lining up on the
   goal and the POLLEN pipeline otherwise (`LIMELIGHT_BALL_COLOR`). The teleop uses the HIVE
   pipeline for the shoot-ready light, and the ball pipeline matching the aim button while
   gamepad1 X (blue) / B (red) / Y or LB (yellow) is held.
 - **Ball distance** comes from the target area (assumes a 640x480 image, ~54.5° wide).
   Camera-based robot avoidance is webcam-only; the distance sensor and bump detection still work.
 - `CellTarget` (range / bearing to our HIVE CELL) is what the OpModes use, from either camera.
+- **"Detects nothing":** a new Limelight's pipelines aren't set up for this code. In the web page,
+  for each pipeline: choose it, set the Pipeline Type (0 = Fiducial Markers / 36h11 / 82.55 mm;
+  1-3 = Color), for color use the Thresholding color picker on a real ball so only the ball
+  lights up, then **Save**. Only HIVE tags **30-45** count; other tag IDs are ignored. In
+  `TeamBotTeleop_latest` balls are only looked for while gamepad1 X/B/Y/LB is held (the rest of
+  the time the Limelight watches the HIVE). Distance to the HIVE uses 3D if "Full 3D" is on,
+  otherwise the tag's size.
 - **Troubleshooting:** run the **LimelightTest** TeleOp. It shows whether a Limelight 3A is in the
   active configuration (under any name), whether it is connected and sending data (FPS,
-  temperature, pipeline), and what it sees; the D-pad switches pipelines 0-3. The Limelight must
+  temperature, pipeline), warns if a pipeline is the wrong **type** (e.g. pipeline 0 not AprilTag),
+  and lists what it sees (every tag ID, labeled HIVE or ignored; color targets with size); the
+  D-pad switches pipelines 0-3. The Limelight must
   be plugged into the **Control Hub** (not a laptop) and added with Configure Robot → Scan.
 
 ---
