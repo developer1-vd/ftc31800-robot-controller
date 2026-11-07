@@ -122,9 +122,18 @@ public class BallDetector {
     // -----------------------------
     // Blob filters (tune on the field)
     // -----------------------------
-    private double minContourArea = 150;     // pixels^2, ignore specks
-    private double maxContourArea = 60000;   // pixels^2, ignore huge regions (walls, robots)
-    private double minCircularity = 0.55;    // ignore non-round blobs
+    // Checked on a photo of the real balls with the same image steps as the robot:
+    // 400 drops the small false "balls" (highlights inside other balls' holes); 250000 still
+    // allows a 3.6 in NECTAR right in front of the camera (~95000 px at 10 in; the old 60000
+    // limit threw it away just as the robot got close enough to pick it up); 0.5 allows for
+    // the holes in these balls (the yellow ball measured 0.67 in good light).
+    private double minContourArea = 400;     // pixels^2, ignore specks
+    private double maxContourArea = 250000;  // pixels^2, ignore huge regions (walls, robots)
+    private double minCircularity = 0.5;     // ignore non-round blobs
+
+    // Color ranges: calibrated from this robot's camera if saved (BallColorCalibration),
+    // otherwise the SDK defaults
+    private java.util.Map<BallColor, BallColorCalibration.Range> colorRanges = BallColorCalibration.load();
 
     private final EnumMap<BallColor, ColorBlobLocatorProcessor> processors = new EnumMap<>(BallColor.class);
     private VisionPortal visionPortal;   // only set when this class owns the camera
@@ -169,7 +178,7 @@ public class BallDetector {
     /**
      * Standalone init: opens "Webcam 1" with only the ball processors attached.
      */
-    public void init(HardwareMap hwMap, Telemetry telemetry) {
+    public void init(HardwareMap hwMap, Telemetry telemetry, VisionProcessor... extraProcessors) {
         this.telemetry = telemetry;
         buildProcessors();
 
@@ -177,7 +186,13 @@ public class BallDetector {
                 .setCamera(hwMap.get(WebcamName.class, "Webcam 1"))
                 .setCameraResolution(new Size(IMAGE_WIDTH, IMAGE_HEIGHT))
                 .addProcessors(getProcessors())
+                .addProcessors(extraProcessors)
                 .build();
+    }
+
+    /** The YCrCb range currently used for a color (calibrated or SDK default). */
+    public BallColorCalibration.Range getColorRange(BallColor color) {
+        return colorRanges.get(color);
     }
 
     /**
@@ -190,6 +205,7 @@ public class BallDetector {
     }
 
     private void buildProcessors() {
+        colorRanges = BallColorCalibration.load();
         processors.clear();
         for (BallColor color : BallColor.values()) {
             processors.put(color, buildProcessor(color));
@@ -198,7 +214,7 @@ public class BallDetector {
 
     private ColorBlobLocatorProcessor buildProcessor(BallColor color) {
         return new ColorBlobLocatorProcessor.Builder()
-                .setTargetColorRange(color.range)
+                .setTargetColorRange(colorRanges.get(color).toColorRange())
                 .setContourMode(ColorBlobLocatorProcessor.ContourMode.EXTERNAL_ONLY)
                 .setRoi(ImageRegion.entireFrame())
                 .setDrawContours(true)
