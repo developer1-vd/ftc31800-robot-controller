@@ -56,7 +56,10 @@ public class BallDetectionTest extends OpMode {
         if (frontRight != null) frontRight.setDirection(DcMotor.Direction.FORWARD);
         if (backRight  != null) backRight.setDirection(DcMotor.Direction.FORWARD);
 
-        limelight = LimelightVision.tryCreate(hardwareMap, telemetry);
+        // Balls come from Webcam 1 when it's configured (even with a Limelight, which is then
+        // left for AprilTags); otherwise from the Limelight's color pipelines.
+        limelight = BallDetector.webcamConfigured(hardwareMap) ? null
+                : LimelightVision.tryCreate(hardwareMap, telemetry);
         if (limelight != null) {
             ballDetector.useLimelight(limelight, telemetry);
             telemetry.addLine("Using Limelight 3A");

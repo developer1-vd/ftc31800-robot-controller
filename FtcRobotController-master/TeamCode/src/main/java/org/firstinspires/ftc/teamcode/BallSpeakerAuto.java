@@ -204,6 +204,8 @@ public class BallSpeakerAuto extends OpMode {
     private final BallDetector ballDetector = new BallDetector();
     private final AprilTagWebcam aprilTagWebcam = new AprilTagWebcam();   // shares "Webcam 1"
     private LimelightVision limelight = null;   // used instead of the webcam if configured
+    // With both cameras: the Limelight only watches AprilTags, the webcam finds the balls
+    private boolean limelightTagsOnly = false;
     // Which ball color pipeline the Limelight runs while collecting (one color at a time)
     private static final BallDetector.BallColor LIMELIGHT_BALL_COLOR = BallDetector.BallColor.YELLOW;
     private final FeederLauncher leftLauncher  = new FeederLauncher();
@@ -254,7 +256,12 @@ public class BallSpeakerAuto extends OpMode {
 
         // Camera: a Limelight 3A named "limelight" if configured, otherwise "Webcam 1"
         limelight = LimelightVision.tryCreate(hardwareMap, telemetry);
-        if (limelight != null) {
+        if (limelight != null && BallDetector.webcamConfigured(hardwareMap)) {
+            // Both cameras: Limelight = HIVE AprilTags only, C270 webcam = all balls
+            limelightTagsOnly = true;
+            ballDetector.init(hardwareMap, telemetry);
+            telemetry.addLine("Cameras: Limelight for AprilTags, Webcam 1 for balls");
+        } else if (limelight != null) {
             ballDetector.useLimelight(limelight, telemetry);
         } else {
             // Ball detection + AprilTags (for finding the goal) on the same webcam
@@ -959,7 +966,8 @@ public class BallSpeakerAuto extends OpMode {
      */
     private void updateVision() {
         if (limelight != null) {
-            boolean lookingForHive = state == State.FIND_GOAL || state == State.LINE_UP;
+            boolean lookingForHive = limelightTagsOnly
+                    || state == State.FIND_GOAL || state == State.LINE_UP;
             limelight.setMode(lookingForHive ? LimelightVision.Mode.HIVE : LimelightVision.Mode.BALLS,
                     LIMELIGHT_BALL_COLOR);
             limelight.update();
@@ -1049,6 +1057,7 @@ public class BallSpeakerAuto extends OpMode {
         } else {
             aprilTagWebcam.stop();   // closes the shared camera
         }
+        ballDetector.stop();         // closes the webcam if the ball detector opened it
     }
 
     private DcMotor getMotor(String name) {

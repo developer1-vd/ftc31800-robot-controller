@@ -251,6 +251,11 @@ public class BallDetector {
         return limelight != null;
     }
 
+    /** True if "Webcam 1" (the Logitech C270) is in the active robot configuration. */
+    public static boolean webcamConfigured(HardwareMap hwMap) {
+        return hwMap.tryGet(WebcamName.class, "Webcam 1") != null;
+    }
+
     public void update() {
         List<Ball> found = new ArrayList<>();
         List<RobotBlob> robots = new ArrayList<>();

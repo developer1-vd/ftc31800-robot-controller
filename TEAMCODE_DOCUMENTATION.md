@@ -311,7 +311,12 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
   | 2 | Color, red | red NECTAR |
   | 3 | Color, blue | blue NECTAR |
   Enable multiple targets in the color pipelines and set a minimum area.
-- **One pipeline at a time:** the auto uses the HIVE pipeline while finding / lining up on the
+- **Both cameras (Limelight + `Webcam 1`):** each camera does one job, all the time. The Limelight
+  stays on pipeline 0 and only watches the HIVE AprilTags; the Logitech C270 finds all the balls
+  (yellow POLLEN, red and blue NECTAR) with `BallDetector`, including camera robot avoidance. Only
+  pipeline 0 needs setting up on the Limelight in this mode. Used by `BallSpeakerAuto`, the
+  BIOBUZZ autos and `TeamBotTeleop_latest`; `BallDetectionTest` uses the webcam for balls.
+- **Limelight only — one pipeline at a time:** the auto uses the HIVE pipeline while finding / lining up on the
   goal and the POLLEN pipeline otherwise (`LIMELIGHT_BALL_COLOR`). The teleop uses the HIVE
   pipeline for the shoot-ready light, and the ball pipeline matching the aim button while
   gamepad1 X (blue) / B (red) / Y or LB (yellow) is held.
