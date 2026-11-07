@@ -208,6 +208,15 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
   `BallDetectionTest` and `TeamBotTeleop_latest` still run: they detect balls and speak the color,
   including during INIT. For an Autonomous option, use `BallSpeakerAuto`. The Pedro autos need
   the drivetrain and won't start without it.
+- **Ball color calibration (if the webcam detects no balls):** the SDK's built-in color ranges
+  need very saturated colors and often match nothing on a real webcam under field lighting. Run
+  **BallDetectionTest**, open the Camera Stream, hold a ball so it fills the white square in the
+  center, and press gamepad1 **D-pad UP (yellow) / RIGHT (red) / LEFT (blue)**; **DOWN** resets.
+  Telemetry shows the center color (Y/Cr/Cb) and which balls it matches. Saved to
+  `/sdcard/FIRST/biobuzz_ball_colors.txt` on the Control Hub and used by every OpMode (restart the
+  OpMode to apply). Calibrate under the lighting you'll compete in.
+- **Filters:** area 400-250000 px (ignores specks; keeps a NECTAR right in front of the camera),
+  circularity ≥ 0.5 (the balls have holes).
 - **Tuning:** Distance depends on the camera focal length (default 822 px, typical for a C270).
   Put a ball at a known distance `D`, read its radius `r` in `BallDetectionTest`, then call
   `setFocalLengthPx(D * 2 * r / 2.9)` (2.9 in is the default ball diameter; change it with

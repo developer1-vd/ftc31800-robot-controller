@@ -5,7 +5,9 @@ import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.util.Range;
 
+import org.firstinspires.ftc.teamcode.mechanisms.BallColorCalibration;
 import org.firstinspires.ftc.teamcode.mechanisms.BallDetector;
+import org.firstinspires.ftc.teamcode.mechanisms.CenterColorSampler;
 import org.firstinspires.ftc.teamcode.mechanisms.LimelightVision;
 
 /**
@@ -21,6 +23,14 @@ import org.firstinspires.ftc.teamcode.mechanisms.LimelightVision;
  * color pipeline at a time: yellow POLLEN by default, blue/red/yellow while X/B/Y is held.
  * Good for tuning each Limelight color pipeline.
  *
+ * BALL COLOR CALIBRATION (webcam): if balls aren't detected, the colors need calibrating for
+ * your camera and lighting. Telemetry shows the color in the white square at the center of the
+ * camera view (Driver Station: ... menu -> Camera Stream to see it) and which ball colors it
+ * matches. Hold a ball so it fills the square, then press on gamepad1:
+ *   D-pad UP = save as YELLOW POLLEN, RIGHT = save as RED NECTAR, LEFT = save as BLUE NECTAR,
+ *   D-pad DOWN = forget all calibration (back to the SDK default colors).
+ * The colors are saved on the Control Hub and used by every OpMode; restart the OpMode to apply.
+ *
  * Also use this to tune BallDetector: check radius/distance at known distances
  * and adjust the focal length and blob filters.
  */
@@ -29,6 +39,9 @@ public class BallDetectionTest extends OpMode {
 
     private final BallDetector ballDetector = new BallDetector();
     private LimelightVision limelight = null;
+    private final CenterColorSampler sampler = new CenterColorSampler();
+    private boolean lastDpad = false;
+    private String calibrationMessage = "";
 
     private DcMotor frontLeft  = null;
     private DcMotor frontRight = null;
@@ -65,7 +78,7 @@ public class BallDetectionTest extends OpMode {
             telemetry.addLine("Using Limelight 3A");
         } else {
             try {
-                ballDetector.init(hardwareMap, telemetry);
+                ballDetector.init(hardwareMap, telemetry, sampler);
             } catch (Exception e) {
                 telemetry.addLine("⚠️ No camera found: no Limelight 3A and no \"Webcam 1\" in the robot"
                         + " configuration. Run LimelightTest for setup help.");
@@ -83,6 +96,7 @@ public class BallDetectionTest extends OpMode {
     @Override
     public void init_loop() {
         updateVision();
+        colorCalibration();
         ballDetector.displayTelemetry();
         telemetry.update();
     }
@@ -140,6 +154,7 @@ public class BallDetectionTest extends OpMode {
         if (backRight  != null) backRight.setPower(brPower / max);
 
         telemetry.addData("Sound", ballDetector.isSoundEnabled() ? "ON (BACK to mute)" : "OFF (BACK to unmute)");
+        colorCalibration();
         ballDetector.displayTelemetry();
         telemetry.update();
     }
@@ -164,6 +179,57 @@ public class BallDetectionTest extends OpMode {
             limelight.displayTelemetry();
         }
         ballDetector.update();
+    }
+
+    /** Live center color readout, and D-pad ball color calibration (webcam only). */
+    private void colorCalibration() {
+        if (ballDetector.usingLimelight()) {
+            telemetry.addLine("Color tuning: use the Limelight web page (color pipelines 1-3).");
+            return;
+        }
+        double[] mean = sampler.getMean(), std = sampler.getStd();
+        if (mean == null) {
+            telemetry.addLine("Color sampler: waiting for camera frames...");
+            return;
+        }
+        StringBuilder matches = new StringBuilder();
+        for (BallDetector.BallColor c : BallDetector.BallColor.values()) {
+            if (ballDetector.getColorRange(c).contains(mean[0], mean[1], mean[2])) {
+                matches.append(matches.length() > 0 ? ", " : "").append(c);
+            }
+        }
+        telemetry.addLine("== Ball color calibration (white square, center of view) ==");
+        telemetry.addData("Center color", "Y %.0f  Cr %.0f  Cb %.0f   matches: %s",
+                mean[0], mean[1], mean[2], matches.length() > 0 ? matches : "NONE");
+        for (BallDetector.BallColor c : BallDetector.BallColor.values()) {
+            telemetry.addData("  " + c, "%s%s", ballDetector.getColorRange(c),
+                    BallColorCalibration.isCalibrated(c) ? " (calibrated)" : " (SDK default)");
+        }
+        telemetry.addLine("Fill the square with a ball, D-pad: UP yellow, RIGHT red, LEFT blue, DOWN reset");
+
+        // One action per D-pad press
+        boolean up = gamepad1.dpad_up, right = gamepad1.dpad_right, left = gamepad1.dpad_left,
+                down = gamepad1.dpad_down;
+        boolean any = up || right || left || down;
+        if (any && !lastDpad) {
+            try {
+                if (down) {
+                    BallColorCalibration.reset();
+                    calibrationMessage = "Calibration cleared (SDK defaults). Restart the OpMode to apply.";
+                } else {
+                    BallDetector.BallColor color = up ? BallDetector.BallColor.YELLOW
+                            : right ? BallDetector.BallColor.RED : BallDetector.BallColor.BLUE;
+                    BallColorCalibration.Range range = BallColorCalibration.rangeFrom(mean, std);
+                    BallColorCalibration.save(color, range);
+                    calibrationMessage = "Saved " + color + ": " + range + ". Restart the OpMode to apply.";
+                    telemetry.speak(color.name().toLowerCase() + " saved");
+                }
+            } catch (Exception e) {
+                calibrationMessage = "Could not save: " + e.getMessage();
+            }
+        }
+        lastDpad = any;
+        if (!calibrationMessage.isEmpty()) telemetry.addLine(calibrationMessage);
     }
 
     private DcMotor getMotor(String name) {
