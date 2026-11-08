@@ -17,6 +17,7 @@ public class LookAroundScanner {
     private final double pauseMs;   // how long to hold still and look after each step
     private final ElapsedTime timer = new ElapsedTime();
     private boolean active = false;
+    private double direction = -1;   // -1 = search to the LEFT, +1 = to the RIGHT (rx convention)
 
     /** Default: 0.25 power, turn 0.35 s, look 0.45 s (roughly 30-40 degrees per step). */
     public LookAroundScanner() {
@@ -35,8 +36,26 @@ public class LookAroundScanner {
     }
 
     /**
+     * Search toward the side the target was last seen on: bearing > 0 (it was to the LEFT)
+     * searches left, bearing < 0 searches right. Smarter than always turning the same way.
+     */
+    public void searchToward(double lastSeenBearingDeg) {
+        direction = lastSeenBearingDeg >= 0 ? -1 : 1;
+    }
+
+    /** -1 = searching left, +1 = right. */
+    public double getDirection() {
+        return direction;
+    }
+
+    /** How long the current search has been going (0 if not searching). */
+    public double searchMs() {
+        return active ? timer.milliseconds() : 0;
+    }
+
+    /**
      * Turn power for right now, + = turn RIGHT (same as gamepad right_stick_x / rx).
-     * Searches to the LEFT (counter-clockwise), like the goal search.
+     * Searches LEFT (counter-clockwise) unless searchToward() picked the right.
      */
     public double turnPower() {
         if (!active) {
@@ -45,7 +64,7 @@ public class LookAroundScanner {
             return 0;                       // look first before moving
         }
         double t = timer.milliseconds() % (turnMs + pauseMs);
-        return t < pauseMs ? 0 : -power;    // pause (look), then a turn step
+        return t < pauseMs ? 0 : direction * power;    // pause (look), then a turn step
     }
 
     /** True while in a turn step (for telemetry: "turning" vs "looking"). */

@@ -13,6 +13,7 @@ import org.firstinspires.ftc.teamcode.mechanisms.AprilTagWebcam;
 import org.firstinspires.ftc.teamcode.mechanisms.CellTarget;
 import org.firstinspires.ftc.teamcode.mechanisms.FeederLauncher;
 import org.firstinspires.ftc.teamcode.mechanisms.LimelightVision;
+import org.firstinspires.ftc.teamcode.mechanisms.ShotPlanner;
 import org.firstinspires.ftc.teamcode.mechanisms.ShotSequencer;
 
 /**
@@ -234,6 +235,8 @@ public abstract class BiobuzzPathAuto extends OpMode {
         boolean aimed = cell != null && Math.abs(error) <= AIM_TOL_DEG;
         if (aimed || stateTimer.milliseconds() > AIM_TIMEOUT_MS) {
             follower.setTeleOpDrive(0, 0, 0, true);
+            // Flywheel speed from the distance to the HIVE (ShotPlanner's table), if we can see it
+            shots.setRpm(cell != null ? ShotPlanner.rpmForRange(cell.rangeIn) : SHOOT_RPM);
             shots.start(secondVolley ? BALLS_AFTER_COLLECT : PRELOAD_BALLS);
             setState(State.SHOOT);
             return aimed ? "aimed at the HIVE" : "aim timeout - shooting from the path heading";

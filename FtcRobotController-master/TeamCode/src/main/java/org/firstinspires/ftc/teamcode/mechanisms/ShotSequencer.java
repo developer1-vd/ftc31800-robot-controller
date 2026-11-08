@@ -18,7 +18,8 @@ public class ShotSequencer {
 
     private final FeederLauncher left, right;
     private final DcMotor intake;          // may be null
-    private final double intakePower, rpm, feedMs, delayMs;
+    private final double intakePower, feedMs, delayMs;
+    private double rpm;
 
     private Step step = Step.FEED;
     private final ElapsedTime timer = new ElapsedTime();
@@ -34,6 +35,15 @@ public class ShotSequencer {
         this.rpm = rpm;
         this.feedMs = feedMs;
         this.delayMs = delayMs;
+    }
+
+    /** Flywheel speed for the next shots (e.g. ShotPlanner.rpmForRange of the HIVE distance). */
+    public void setRpm(double rpm) {
+        this.rpm = rpm;
+    }
+
+    public double getRpm() {
+        return rpm;
     }
 
     /** Begin shooting this many balls (rounded up to left+right pairs). */
