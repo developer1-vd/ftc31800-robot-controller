@@ -301,13 +301,16 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
   the path auto and `ShotSequencer` (feeding the launchers).
 - **Direction:** `run(+1)` = in, `run(-1)` = out. Which motor direction is "in" is set ONCE in
   `Intake.INTAKE_DIRECTION` (FORWARD = the old teleop's A button). Flip it there if balls go out.
-- **Speed control:** with the encoder cable plugged in, holds `IN_RPM`/`OUT_RPM` (300) with the
-  hub's velocity control. Without an encoder (count never moves while current is low) it switches
-  to power mode by itself.
-- **Jam clearing:** pulling in at < 25% speed while drawing > 3 A for 0.3 s = jammed → reverse
-  0.25 s → pull in again. Not done while running out.
-- **IntakeTest** (also in TEST MODE): A in, B out, Y full in (jam test), D-pad speed; shows RPM,
-  current, jams and encoder status.
+- **Drive:** plain motor power by default (`run(1)` = `setPower(1)`, the same as the old teleop), so
+  it always turns. `SPEED_CONTROL = true` instead holds `IN_RPM`/`OUT_RPM` (300) with the hub's
+  velocity control; without a working encoder it drops back to power by itself.
+- **Name:** looks for `intake` (then `intakeMotor`, `intake_motor`, `Intake`). If none is found,
+  telemetry says so and lists the motor names that ARE in the configuration.
+- **Jam clearing (needs the encoder cable):** only after the encoder has been seen moving. Pulling
+  in at < 25% speed while drawing > 3 A for 0.3 s = jammed → reverse 0.25 s → pull in again.
+- **IntakeTest** (also in TEST MODE): A in, B out, Y full in (jam test), D-pad speed, **X = RAW**
+  full power straight to the motor (skips the Intake class: if X doesn't turn it, it's wiring or
+  configuration). Shows RPM, current, jams, encoder status and any problem.
 
 ### 13. **The auto's "brain"** (`BallSpeakerAuto` SMART_ flags, `BallChooser`, `ShotPlanner`)
 Used by every BallSpeakerAuto-based mode (BIOBUZZ autos, simple autos, practice autos, the teleop
