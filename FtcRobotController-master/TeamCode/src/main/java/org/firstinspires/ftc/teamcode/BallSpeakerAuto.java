@@ -16,6 +16,7 @@ import org.firstinspires.ftc.teamcode.mechanisms.FeederLauncher;
 import org.firstinspires.ftc.teamcode.mechanisms.LimelightVision;
 import org.firstinspires.ftc.teamcode.mechanisms.LookAroundScanner;
 import org.firstinspires.ftc.teamcode.mechanisms.PinpointOdometry;
+import org.firstinspires.ftc.teamcode.mechanisms.ShotSequencer;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 
@@ -190,19 +191,14 @@ public class BallSpeakerAuto extends OpMode {
 
     private enum State { LEAVE_WALL, SEEK, CAPTURE, SETTLE, FIND_GOAL, LINE_UP, SHOOT, RETURN_HOME, AVOID, DONE, FULL }
     private enum AvoidStep { WAIT, BACK_UP, TURN }
-    private enum ShotStep { FEED, FIRE, WAIT_LAUNCHED, DELAY }
     private State state = State.SEEK;
     private final ElapsedTime stateTimer = new ElapsedTime();
     private int ballsCollected = 0;
     private final ElapsedTime lastBallSeenTimer = new ElapsedTime();
     private final ElapsedTime goalLastSeenTimer = new ElapsedTime();
 
-    // Shooting progress
-    private ShotStep shotStep = ShotStep.FEED;
-    private final ElapsedTime shotTimer = new ElapsedTime();
-    private int shotsFired = 0;
-    private int shotsToFire = 0;
-    private boolean fireLeftNext = true;
+    // Shooting (feed, left, right, ...): see ShotSequencer
+    private ShotSequencer shots = null;
 
     private boolean announcedArrival = false;
 
@@ -283,6 +279,8 @@ public class BallSpeakerAuto extends OpMode {
         if (hasLauncher) {
             leftLauncher.init(hardwareMap, telemetry, "launcher", "feederServoLeft");
             rightLauncher.init(hardwareMap, telemetry, "launcher", "feederServoRight");
+            shots = new ShotSequencer(leftLauncher, rightLauncher, intake, INTAKE_IN_POWER,
+                    SHOOT_RPM, FEED_INTAKE_MS, SHOT_DELAY_MS);
         }
         try {
             // Start pose (0, 0, 0) = wherever the robot is when Play is pressed
@@ -335,6 +333,14 @@ public class BallSpeakerAuto extends OpMode {
     /** Balls already in the robot at Play (BIOBUZZ robots start with 4 POLLEN). Shot first. */
     protected int preloadedBalls() {
         return 0;
+    }
+
+    /**
+     * Go looking for more balls after the preloads (true), or just shoot the preloads and finish
+     * (false: the simple autos). Without collecting, the robot heads home / parks when done.
+     */
+    protected boolean collectBalls() {
+        return true;
     }
 
     /** How long the run lasts before the final trip home and stop (TEST MODE uses a longer one). */
@@ -446,7 +452,7 @@ public class BallSpeakerAuto extends OpMode {
                 setDrivePower(0, 0);
                 setIntake(0);
                 stopLaunchers();
-                status = "time's up - done";
+                status = finalReturn ? "finished - stopped" : "time's up - done";
                 break;
 
             case FULL:
@@ -493,6 +499,10 @@ public class BallSpeakerAuto extends OpMode {
 
     /** Turn toward and drive to the closest ball. Returns a status line. */
     private String seek() {
+        if (!collectBalls() && started) {
+            goFinalTrip();
+            return "not collecting - finishing";
+        }
         BallDetector.Ball ball = closestWantedBall();
         if (!TURN_TO_BALL || ball == null) {
             setIntake(0);
@@ -566,7 +576,11 @@ public class BallSpeakerAuto extends OpMode {
             setDrivePower(0, 0);
             ballDetector.announce("can't find goal");
             // Full: stop here. Otherwise keep collecting and try again later.
-            setState(ballsCollected >= MAX_BALLS ? State.FULL : State.SEEK);
+            if (!collectBalls()) {
+                goFinalTrip();   // simple autos: no HIVE found, so just go park
+            } else {
+                setState(ballsCollected >= MAX_BALLS ? State.FULL : State.SEEK);
+            }
             lastBallSeenTimer.reset();
             return "can't find goal";
         }
@@ -609,62 +623,19 @@ public class BallSpeakerAuto extends OpMode {
     }
 
     private void startShooting() {
-        shotsFired = 0;
-        // We can't tell which side each ball is on, so always fire left AND right
-        // (1-2 balls -> 2 shots, 3-4 balls -> 4 shots, like the competition autos).
-        shotsToFire = ((ballsCollected + 1) / 2) * 2;
-        fireLeftNext = true;
-        shotStep = ShotStep.FEED;
-        shotTimer.reset();
+        shots.start(ballsCollected);
         ballDetector.announce("shooting");
         setState(State.SHOOT);
     }
 
-    /**
-     * Same pattern as the competition autos: run the intake to move balls up to the
-     * feeders, then shoot left, wait, shoot right, and feed again for any extra ball.
-     */
+    /** Feed and fire left/right pairs (ShotSequencer), with a safety timeout. */
     private String shoot() {
         setDrivePower(0, 0);
-
-        if (shotsFired >= shotsToFire || stateTimer.milliseconds() > SHOOT_TIMEOUT_MS) {
+        if (shots.isDone() || stateTimer.milliseconds() > SHOOT_TIMEOUT_MS) {
             finishShooting();
             return "done shooting";
         }
-
-        switch (shotStep) {
-            case FEED:
-                setIntake(INTAKE_IN_POWER);
-                if (shotTimer.milliseconds() > FEED_INTAKE_MS) {
-                    setIntake(0);
-                    shotStep = ShotStep.FIRE;
-                }
-                return "feeding balls to launcher";
-
-            case FIRE:
-                (fireLeftNext ? leftLauncher : rightLauncher).launch(SHOOT_RPM, 0, true, true);
-                shotStep = ShotStep.WAIT_LAUNCHED;
-                return "spinning up";
-
-            case WAIT_LAUNCHED:
-                FeederLauncher launcher = fireLeftNext ? leftLauncher : rightLauncher;
-                if (launcher.getStatus() == FeederLauncher.LaunchState.LAUNCHED) {
-                    shotsFired++;
-                    // After a left+right pair, feed the next ball up; otherwise switch sides
-                    boolean pairDone = !fireLeftNext;
-                    fireLeftNext = !fireLeftNext;
-                    shotStep = pairDone ? ShotStep.FEED : ShotStep.DELAY;
-                    shotTimer.reset();
-                }
-                return "shooting (" + (shotsFired + 1) + " of " + shotsToFire + ")";
-
-            case DELAY:
-            default:
-                if (shotTimer.milliseconds() > SHOT_DELAY_MS) {
-                    shotStep = ShotStep.FIRE;
-                }
-                return "waiting between shots";
-        }
+        return shots.update();
     }
 
     private void finishShooting() {
@@ -892,6 +863,13 @@ public class BallSpeakerAuto extends OpMode {
             ballDetector.announce("going home");
             setState(State.RETURN_HOME);
         }
+    }
+
+    /** Head home / park for the last time now (then stop). */
+    private void goFinalTrip() {
+        finalReturn = true;
+        stopEverything();
+        setState(canReturnHome() ? State.RETURN_HOME : State.DONE);
     }
 
     private void stopEverything() {

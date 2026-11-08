@@ -49,6 +49,12 @@ public class TeamBotTeleop_latest extends OpMode {
     private static final boolean LOOK_AROUND_WHEN_AIMING = true;
     private final LookAroundScanner ballScanner = new LookAroundScanner();
 
+    // Autopilot (gamepad1 START). Which HIVE it shoots into: set to your alliance!
+    private static final boolean AUTOPILOT_RED_ALLIANCE = true;
+    private BallSpeakerAuto autopilot = null;
+    private boolean lastStartButton = false;
+    private String autopilotMessage = "";
+
     // Debounce for shoot-ready indicator
     private int shootInRangeCount = 0;
     private static final int SHOOT_DEBOUNCE_FRAMES = 3;
@@ -245,27 +251,7 @@ public class TeamBotTeleop_latest extends OpMode {
         }
 
 
-        // Camera: a Limelight 3A named "limelight" if configured, otherwise "Webcam 1"
-        limelight = LimelightVision.tryCreate(hardwareMap, telemetry);
-        if (limelight != null && BallDetector.webcamConfigured(hardwareMap)) {
-            // Both cameras: Limelight = HIVE AprilTags only, C270 webcam = all balls
-            limelightTagsOnly = true;
-            ballDetector.init(hardwareMap, telemetry);
-            telemetry.addLine("Cameras: Limelight for AprilTags, Webcam 1 for balls");
-        } else if (limelight != null) {
-            ballDetector.useLimelight(limelight, telemetry);
-            telemetry.addLine("Using Limelight 3A");
-        } else {
-            // AprilTag + ball detection on the same webcam
-            ballDetector.buildProcessors(telemetry);
-            try {
-                aprilTagWebcam.init(hardwareMap, telemetry, ballDetector.getProcessors());
-            } catch (Exception e) {
-                telemetry.addLine("⚠️ No camera found: no Limelight 3A and no \"Webcam 1\" in the robot"
-                        + " configuration. Run LimelightTest for setup help.");
-            }
-            aprilTagWebcam.reportHardwareStatus();
-        }
+        initVision();
         ballDetector.setSoundEnabled(SOUND_ENABLED);
 
 //        leftFeederLauncher.reportHardwareStatus();
@@ -280,6 +266,32 @@ public class TeamBotTeleop_latest extends OpMode {
 
     @Override
     public void loop() {
+
+        // -----------------------------
+        // AUTOPILOT (gamepad1 START)
+        // -----------------------------
+        boolean startPressed = gamepad1.start && !lastStartButton;
+        lastStartButton = gamepad1.start;
+        if (autopilot != null) {
+            boolean driverTookOver = Math.abs(gamepad1.left_stick_x) > 0.3
+                    || Math.abs(gamepad1.left_stick_y) > 0.3 || Math.abs(gamepad1.right_stick_x) > 0.3;
+            if (startPressed || driverTookOver) {
+                endAutopilot(driverTookOver ? "driver took over" : "START pressed");
+            } else {
+                telemetry.addData("🤖 AUTOPILOT", "ON  (START or move a stick to drive)");
+                try {
+                    autopilot.loop();   // shows its own telemetry
+                } catch (Exception e) {
+                    endAutopilot("crashed: " + e);
+                }
+                return;
+            }
+        } else if (startPressed) {
+            startAutopilot();
+            if (autopilot != null) return;
+        }
+        if (!autopilotMessage.isEmpty()) telemetry.addLine(autopilotMessage);
+        telemetry.addData("Autopilot", "press START (gamepad1)");
 
         // -----------------------------
         // AprilTag Update + Shoot Ready
@@ -762,6 +774,94 @@ public class TeamBotTeleop_latest extends OpMode {
         return limelight != null ? limelight.getCellTarget(red) : aprilTagWebcam.getCellTarget(red);
     }
 
+    /** Open the cameras (also used to take them back from the autopilot). */
+    private void initVision() {
+        // Camera: a Limelight 3A named "limelight" if configured, otherwise "Webcam 1"
+        limelight = LimelightVision.tryCreate(hardwareMap, telemetry);
+        if (limelight != null && BallDetector.webcamConfigured(hardwareMap)) {
+            // Both cameras: Limelight = HIVE AprilTags only, C270 webcam = all balls
+            limelightTagsOnly = true;
+            ballDetector.init(hardwareMap, telemetry);
+            telemetry.addLine("Cameras: Limelight for AprilTags, Webcam 1 for balls");
+        } else if (limelight != null) {
+            ballDetector.useLimelight(limelight, telemetry);
+            telemetry.addLine("Using Limelight 3A");
+        } else {
+            // AprilTag + ball detection on the same webcam
+            ballDetector.buildProcessors(telemetry);
+            try {
+                aprilTagWebcam.init(hardwareMap, telemetry, ballDetector.getProcessors());
+            } catch (Exception e) {
+                telemetry.addLine("⚠️ No camera found: no Limelight 3A and no \"Webcam 1\" in the robot"
+                        + " configuration. Run LimelightTest for setup help.");
+            }
+            aprilTagWebcam.reportHardwareStatus();
+        }
+    }
+
+    /** Close the cameras (AprilTags + ball detection). */
+    private void stopVision() {
+        if (limelight != null) {
+            limelight.stop();
+        } else {
+            aprilTagWebcam.stop();
+        }
+        ballDetector.stop();   // closes the webcam if the ball detector opened it
+    }
+
+    // -------------------------------------------------
+    // AUTOPILOT: gamepad1 START hands the robot to the camera auto (find balls, collect, aim at
+    // the HIVE, shoot, avoid robots/walls). START again, or moving any stick, gives control back.
+    // -------------------------------------------------
+
+    private void startAutopilot() {
+        stopVision();                                 // the autopilot opens its own cameras
+        stopAllMotors();
+        final boolean red = AUTOPILOT_RED_ALLIANCE;
+        BallSpeakerAuto pilot = new BallSpeakerAuto() {
+            @Override protected boolean redAlliance() { return red; }
+            @Override protected double autoLengthMs() { return Double.POSITIVE_INFINITY; }
+        };
+        pilot.hardwareMap = hardwareMap;
+        pilot.telemetry = telemetry;
+        pilot.gamepad1 = gamepad1;
+        pilot.gamepad2 = gamepad2;
+        try {
+            pilot.init();
+            pilot.start();
+            autopilot = pilot;
+            telemetry.speak("autopilot on");
+        } catch (Exception e) {
+            autopilotMessage = "Autopilot couldn't start: " + e;
+            try { pilot.stop(); } catch (Exception ignored) { }
+            stopAllMotors();
+            initVision();
+        }
+    }
+
+    private void endAutopilot(String why) {
+        try {
+            autopilot.stop();
+        } catch (Exception ignored) {
+            // still stop the motors and take the cameras back below
+        }
+        autopilot = null;
+        stopAllMotors();
+        initVision();
+        autopilotMessage = "Autopilot off: " + why;
+        telemetry.speak("driver control");
+    }
+
+    private void stopAllMotors() {
+        for (com.qualcomm.robotcore.hardware.DcMotorSimple m
+                : hardwareMap.getAll(com.qualcomm.robotcore.hardware.DcMotorSimple.class)) {
+            try {
+                m.setPower(0);
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
     /**
      * Update the camera and ball detection. The Limelight runs one pipeline at a time: the
      * HIVE (AprilTags, for the shoot-ready light) normally, and the matching ball color while
@@ -806,12 +906,11 @@ public class TeamBotTeleop_latest extends OpMode {
 
     @Override
     public void stop() {
-        // Closes the camera (AprilTags + ball detection)
-        if (limelight != null) {
-            limelight.stop();
+        if (autopilot != null) {
+            autopilot.stop();      // closes the cameras it opened and stops its motors
+            autopilot = null;
         } else {
-            aprilTagWebcam.stop();
+            stopVision();
         }
-        ballDetector.stop();   // closes the webcam if the ball detector opened it
     }
 }
