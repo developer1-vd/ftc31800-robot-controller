@@ -725,7 +725,7 @@ public class TeamBotTeleop_latest extends OpMode {
         telemetry.addData("frontRight",  hasFrontRight ? "OK" : "MISSING");
         telemetry.addData("backLeft",    hasBackLeft   ? "OK" : "MISSING");
         telemetry.addData("backRight",   hasBackRight  ? "OK" : "MISSING");
-        telemetry.addData("intake",      hasIntake     ? "OK" : "MISSING");
+        telemetry.addData("intake",      hasIntake     ? "OK" : "MISSING: " + intake.getProblem());
         telemetry.addData("feederMotor", hasFeederMotor ? "OK" : "MISSING");
     }
 
