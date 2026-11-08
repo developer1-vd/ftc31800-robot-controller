@@ -14,6 +14,7 @@ import org.firstinspires.ftc.teamcode.mechanisms.BallChooser;
 import org.firstinspires.ftc.teamcode.mechanisms.BallDetector;
 import org.firstinspires.ftc.teamcode.mechanisms.CellTarget;
 import org.firstinspires.ftc.teamcode.mechanisms.FeederLauncher;
+import org.firstinspires.ftc.teamcode.mechanisms.Intake;
 import org.firstinspires.ftc.teamcode.mechanisms.LimelightVision;
 import org.firstinspires.ftc.teamcode.mechanisms.LookAroundScanner;
 import org.firstinspires.ftc.teamcode.mechanisms.PinpointOdometry;
@@ -106,8 +107,7 @@ public class BallSpeakerAuto extends OpMode {
     private static final double STOP_DISTANCE_IN   = 8.0;   // no intake: stop this far from the ball
 
     // Pickup (with intake)
-    // Intake power that pulls balls IN (matches gamepad2 A in TeamBotTeleop_latest).
-    // Flip the sign if the intake spits balls out.
+    // How hard to pull in (+1 = full IN_RPM). Which way is "in" is set in Intake.INTAKE_DIRECTION.
     private static final double INTAKE_IN_POWER     = 1.0;
     private static final double CAPTURE_DISTANCE_IN = 10.0;  // this close -> drive straight onto it
     private static final double CAPTURE_DRIVE       = 0.25;  // forward power while swallowing the ball
@@ -273,7 +273,8 @@ public class BallSpeakerAuto extends OpMode {
     private DcMotor frontRight = null;
     private DcMotor backLeft   = null;
     private DcMotor backRight  = null;
-    private DcMotor intake     = null;
+    private final Intake intake = new Intake();   // goBILDA Yellow Jacket 312 RPM
+    private boolean hasIntake  = false;
     private Servo   arm        = null;
     private PinpointOdometry odometry = null;   // null if no "pinpoint" configured
     private DistanceSensor frontDistance = null; // null if no "frontDistance" configured
@@ -300,7 +301,7 @@ public class BallSpeakerAuto extends OpMode {
         frontRight = getMotor("right_front_drive");
         backLeft   = getMotor("left_back_drive");
         backRight  = getMotor("right_back_drive");
-        intake     = getMotor("intake");
+        hasIntake  = intake.init(hardwareMap, telemetry, "intake");
         hasLauncher = getMotor("launcher") != null;
         hasDrive = frontLeft != null || frontRight != null || backLeft != null || backRight != null;
 
@@ -308,7 +309,7 @@ public class BallSpeakerAuto extends OpMode {
         if (backLeft   != null) backLeft.setDirection(DcMotor.Direction.REVERSE);
         if (frontRight != null) frontRight.setDirection(DcMotor.Direction.FORWARD);
         if (backRight  != null) backRight.setDirection(DcMotor.Direction.FORWARD);
-        for (DcMotor m : new DcMotor[] { frontLeft, frontRight, backLeft, backRight, intake }) {
+        for (DcMotor m : new DcMotor[] { frontLeft, frontRight, backLeft, backRight }) {
             if (m != null) m.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         }
 
@@ -336,7 +337,7 @@ public class BallSpeakerAuto extends OpMode {
         if (hasLauncher) {
             leftLauncher.init(hardwareMap, telemetry, "launcher", "feederServoLeft");
             rightLauncher.init(hardwareMap, telemetry, "launcher", "feederServoRight");
-            shots = new ShotSequencer(leftLauncher, rightLauncher, intake, INTAKE_IN_POWER,
+            shots = new ShotSequencer(leftLauncher, rightLauncher, hasIntake ? intake : null, INTAKE_IN_POWER,
                     SHOOT_RPM, FEED_INTAKE_MS, SHOT_DELAY_MS);
         }
         try {
@@ -1253,7 +1254,7 @@ public class BallSpeakerAuto extends OpMode {
     }
 
     private boolean canPickUp() {
-        return PICK_UP_BALL && DRIVE_TO_BALL && TURN_TO_BALL && hasDrive && intake != null;
+        return PICK_UP_BALL && DRIVE_TO_BALL && TURN_TO_BALL && hasDrive && hasIntake;
     }
 
     private void setState(State newState) {
@@ -1274,7 +1275,7 @@ public class BallSpeakerAuto extends OpMode {
         if (limelight != null) limelight.displayTelemetry();
         telemetry.addData("Sound", ballDetector.isSoundEnabled() ? "ON" : "OFF");
         telemetry.addData("Drive", hasDrive ? "connected" : "none (camera-only)");
-        telemetry.addData("Intake", intake != null ? "connected" : "none");
+        if (hasIntake) intake.addTelemetry(); else telemetry.addData("Intake", "none");
         telemetry.addData("Launcher", hasLauncher ? "connected" : "none");
         if (frontDistance != null) {
             telemetry.addData("Front distance", "%.1f in", frontDistance.getDistance(DistanceUnit.INCH));
@@ -1320,7 +1321,7 @@ public class BallSpeakerAuto extends OpMode {
     }
 
     private void setIntake(double power) {
-        if (intake != null) intake.setPower(power);
+        if (hasIntake) intake.run(power);
     }
 
     @Override

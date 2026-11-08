@@ -295,6 +295,20 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
   `INTAKE_IN_POWER` is 1.0 (same as gamepad2 A in teleop); flip it if the intake spits balls out.
   Assumes camera and intake face the front of the robot.
 
+### 14. **Intake** (`mechanisms/Intake.java`, test: `IntakeTest`)
+- **Motor:** goBILDA Yellow Jacket **312 RPM** (19.2:1, **537.7 ticks/rev**, ~9.2 A stall) named
+  `intake`. Used by `TeamBotTeleop_latest` (gamepad2 A in / B out), all BallSpeakerAuto-based autos,
+  the path auto and `ShotSequencer` (feeding the launchers).
+- **Direction:** `run(+1)` = in, `run(-1)` = out. Which motor direction is "in" is set ONCE in
+  `Intake.INTAKE_DIRECTION` (FORWARD = the old teleop's A button). Flip it there if balls go out.
+- **Speed control:** with the encoder cable plugged in, holds `IN_RPM`/`OUT_RPM` (300) with the
+  hub's velocity control. Without an encoder (count never moves while current is low) it switches
+  to power mode by itself.
+- **Jam clearing:** pulling in at < 25% speed while drawing > 3 A for 0.3 s = jammed → reverse
+  0.25 s → pull in again. Not done while running out.
+- **IntakeTest** (also in TEST MODE): A in, B out, Y full in (jam test), D-pad speed; shows RPM,
+  current, jams and encoder status.
+
 ### 13. **The auto's "brain"** (`BallSpeakerAuto` SMART_ flags, `BallChooser`, `ShotPlanner`)
 Used by every BallSpeakerAuto-based mode (BIOBUZZ autos, simple autos, practice autos, the teleop
 autopilot). Telemetry shows the current decision as **Brain: ...**. Each part can be turned off:
