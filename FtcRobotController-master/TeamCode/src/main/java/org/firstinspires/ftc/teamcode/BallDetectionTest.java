@@ -9,6 +9,7 @@ import org.firstinspires.ftc.teamcode.mechanisms.BallColorCalibration;
 import org.firstinspires.ftc.teamcode.mechanisms.BallDetector;
 import org.firstinspires.ftc.teamcode.mechanisms.CenterColorSampler;
 import org.firstinspires.ftc.teamcode.mechanisms.LimelightVision;
+import org.firstinspires.ftc.teamcode.mechanisms.LookAroundScanner;
 
 /**
  * Test OpMode for camera-based ball detection.
@@ -41,6 +42,7 @@ public class BallDetectionTest extends OpMode {
     private LimelightVision limelight = null;
     private final CenterColorSampler sampler = new CenterColorSampler();
     private boolean lastDpad = false;
+    private final LookAroundScanner ballScanner = new LookAroundScanner();
     private String calibrationMessage = "";
 
     private DcMotor frontLeft  = null;
@@ -130,6 +132,7 @@ public class BallDetectionTest extends OpMode {
 
         boolean aiming = gamepad1.left_bumper || gamepad1.x || gamepad1.b || gamepad1.y;
         if (aiming && target != null) {
+            ballScanner.reset();
             // bearing > 0 means ball is to the LEFT, so turn left (negative rx)
             if (Math.abs(target.bearing) > AIM_TOLERANCE) {
                 rx = Range.clip(-target.bearing * TURN_GAIN, -MAX_AUTO_TURN, MAX_AUTO_TURN);
@@ -138,6 +141,9 @@ public class BallDetectionTest extends OpMode {
             }
             telemetry.addLine(String.format("AIMING at %s ball: %.1f in, %.1f deg",
                     target.color, target.distance, target.bearing));
+        } else if (aiming && Math.abs(gamepad1.right_stick_x) < 0.1) {
+            rx = ballScanner.turnPower();   // turn to look
+            telemetry.addLine("AIMING: no ball in view - turning to look");
         } else if (aiming) {
             telemetry.addLine("AIMING: no ball in view");
         }

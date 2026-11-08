@@ -295,6 +295,41 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
   `INTAKE_IN_POWER` is 1.0 (same as gamepad2 A in teleop); flip it if the intake spits balls out.
   Assumes camera and intake face the front of the robot.
 
+### 12. **More autonomous modes** and the TeleOp autopilot
+- **TeleOp AUTOPILOT** (`TeamBotTeleop_latest`, also in the phone TeleOp): gamepad1 **START** hands
+  the robot to the camera auto (BallSpeakerAuto with no time limit: find balls, collect, aim at the
+  HIVE, shoot, avoid robots/walls). **START again or moving any stick** gives control back; the
+  cameras are handed back and every motor is stopped first. `AUTOPILOT_RED_ALLIANCE` picks which
+  HIVE it shoots into.
+- **BIOBUZZ Simple Auto RED/BLUE:** BallSpeakerAuto with 4 preloads, leave-the-wall first and
+  `collectBalls() = false`: leave → find our HIVE CELL → shoot → home/park → stop. If the HIVE isn't
+  found, or there's no launcher, it just parks.
+- **BIOBUZZ Path Auto RED/BLUE** (`pedroPathing/BiobuzzPathAuto*.java`): Pedro paths start → SHOOT
+  pose → camera fine-aim (turn in place to the CELL tag) → shoot 4 → COLLECT start → slow sweep to
+  COLLECT end with the intake on → SHOOT → shoot 2 → PARK; goes to PARK with 5 s left. The poses in
+  the Red/Blue files are placeholders: set them and `POSES_SET = true`; until then it only drives
+  14 in forward (LEAVE).
+- **Practice Auto (endless):** BallSpeakerAuto with no time limit.
+- **ShotSequencer** (`mechanisms/ShotSequencer.java`): the shared feed → left → right (→ feed → left
+  → right) shooting sequence used by BallSpeakerAuto (and so every BIOBUZZ auto) and the path auto.
+
+### 11. **TEST MODE (everything)** (`TestMode.java`) and turn-to-look (`mechanisms/LookAroundScanner.java`)
+- **TEST MODE:** one TeleOp that hosts every other (iterative) OpMode: all BIOBUZZ TeleOps, autos
+  and tests, the older TeleOps (TeamBotTeleop, TeamBotTeleop_analytics), last season's DECODE autos
+  (marked OLD) and the Pedro examples. gamepad1 D-pad UP/DOWN + A to pick (Play starts the first
+  pick). **Y = RUN ALL**: every mode in a row (autos 30 s, TeleOps/tests 30 s, practice autos 45 s),
+  then a per-mode summary (ran / skipped / crashed / couldn't start). **X = RUN ALL BIOBUZZ only**
+  (skips the DECODE autos, which drive last season's paths). Click the **left stick** = skip to the
+  next mode; **both sticks** = stop everything (sets every motor and CR servo to 0) and back to the
+  menu. Crashes are caught. Not included: the two LinearOpModes (DriveTrain_Code,
+  RobotAutoDriveByEncoder_Linear_Modified), which can't be hosted. Practice only.
+- **Turn to look:** with no ball in view, the auto turns in place in steps (turn 0.35 s, hold still
+  0.45 s so the camera image is sharp) to search, and does the same to find the HIVE. In
+  `TeamBotTeleop_latest` and `BallDetectionTest`, holding an aim button (LB/X/B/Y) with no matching
+  ball in view does the same, unless the driver is turning with the right stick.
+  (`LOOK_AROUND_FOR_BALLS`, `LOOK_AROUND_WHEN_AIMING` turn it off.) The auto now waits 6 s without
+  seeing a ball (was 3 s) before going to shoot what it holds, so it has time to look around.
+
 ### 10. **PhoneGamepadServer** (`mechanisms/PhoneGamepadServer.java`, `assets/phone_gamepad.html`)
 - **Purpose:** practice/demo phone touchscreen controls. A tiny web server on the Control Hub
   (port **8090**) serves a control page (two joysticks, D-pad, A/B/X/Y, bumpers, triggers,
