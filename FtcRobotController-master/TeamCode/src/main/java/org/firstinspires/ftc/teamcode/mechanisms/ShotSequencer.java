@@ -1,6 +1,5 @@
 package org.firstinspires.ftc.teamcode.mechanisms;
 
-import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.util.ElapsedTime;
 
 /**
@@ -17,15 +16,16 @@ public class ShotSequencer {
     private enum Step { FEED, FIRE, WAIT_LAUNCHED, DELAY }
 
     private final FeederLauncher left, right;
-    private final DcMotor intake;          // may be null
-    private final double intakePower, rpm, feedMs, delayMs;
+    private final Intake intake;           // may be null
+    private final double intakePower, feedMs, delayMs;
+    private double rpm;
 
     private Step step = Step.FEED;
     private final ElapsedTime timer = new ElapsedTime();
     private int shotsFired = 0, shotsToFire = 0;
     private boolean leftNext = true;
 
-    public ShotSequencer(FeederLauncher left, FeederLauncher right, DcMotor intake,
+    public ShotSequencer(FeederLauncher left, FeederLauncher right, Intake intake,
                          double intakePower, double rpm, double feedMs, double delayMs) {
         this.left = left;
         this.right = right;
@@ -34,6 +34,15 @@ public class ShotSequencer {
         this.rpm = rpm;
         this.feedMs = feedMs;
         this.delayMs = delayMs;
+    }
+
+    /** Flywheel speed for the next shots (e.g. ShotPlanner.rpmForRange of the HIVE distance). */
+    public void setRpm(double rpm) {
+        this.rpm = rpm;
+    }
+
+    public double getRpm() {
+        return rpm;
     }
 
     /** Begin shooting this many balls (rounded up to left+right pairs). */
@@ -95,6 +104,6 @@ public class ShotSequencer {
     }
 
     private void setIntake(double power) {
-        if (intake != null) intake.setPower(power);
+        if (intake != null) intake.run(power);
     }
 }

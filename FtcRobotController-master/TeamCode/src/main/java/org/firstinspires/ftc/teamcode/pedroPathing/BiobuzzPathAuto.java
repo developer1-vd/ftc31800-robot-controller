@@ -5,14 +5,15 @@ import com.pedropathing.geometry.BezierLine;
 import com.pedropathing.geometry.Pose;
 import com.pedropathing.paths.Path;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
-import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.util.ElapsedTime;
 import com.qualcomm.robotcore.util.Range;
 
 import org.firstinspires.ftc.teamcode.mechanisms.AprilTagWebcam;
 import org.firstinspires.ftc.teamcode.mechanisms.CellTarget;
 import org.firstinspires.ftc.teamcode.mechanisms.FeederLauncher;
+import org.firstinspires.ftc.teamcode.mechanisms.Intake;
 import org.firstinspires.ftc.teamcode.mechanisms.LimelightVision;
+import org.firstinspires.ftc.teamcode.mechanisms.ShotPlanner;
 import org.firstinspires.ftc.teamcode.mechanisms.ShotSequencer;
 
 /**
@@ -48,7 +49,7 @@ public abstract class BiobuzzPathAuto extends OpMode {
     private static final int    BALLS_AFTER_COLLECT = 2;    // one left+right pair after collecting
     // Shooting: same as BallSpeakerAuto / the teleop (re-tune for the HIVE)
     private static final double SHOOT_RPM        = 2400;
-    private static final double INTAKE_IN_POWER  = 1.0;     // flip if the intake spits balls out
+    private static final double INTAKE_IN_POWER  = 1.0;     // +1 = in (direction: Intake.INTAKE_DIRECTION)
     private static final double FEED_INTAKE_MS   = 1000;
     private static final double SHOT_DELAY_MS    = 2000;
     private static final double SHOOT_TIMEOUT_MS = 12000;
@@ -67,7 +68,8 @@ public abstract class BiobuzzPathAuto extends OpMode {
     private final ElapsedTime stateTimer = new ElapsedTime();
     private final ElapsedTime matchTimer = new ElapsedTime();
 
-    private DcMotor intake;
+    private final Intake intake = new Intake();   // goBILDA Yellow Jacket 312 RPM
+    private boolean hasIntake = false;
     private final FeederLauncher left = new FeederLauncher(), right = new FeederLauncher();
     private ShotSequencer shots;
     private LimelightVision limelight;
@@ -82,14 +84,10 @@ public abstract class BiobuzzPathAuto extends OpMode {
         } catch (Exception e) {
             problem = "Pedro follower failed (drive motors / pinpoint?): " + e.getMessage();
         }
-        try {
-            intake = hardwareMap.get(DcMotor.class, "intake");
-        } catch (Exception e) {
-            intake = null;
-        }
+        hasIntake = intake.init(hardwareMap, telemetry, "intake");
         left.init(hardwareMap, telemetry, "launcher", "feederServoLeft");
         right.init(hardwareMap, telemetry, "launcher", "feederServoRight");
-        shots = new ShotSequencer(left, right, intake, INTAKE_IN_POWER, SHOOT_RPM, FEED_INTAKE_MS, SHOT_DELAY_MS);
+        shots = new ShotSequencer(left, right, hasIntake ? intake : null, INTAKE_IN_POWER, SHOOT_RPM, FEED_INTAKE_MS, SHOT_DELAY_MS);
 
         // HIVE camera: Limelight if configured, otherwise the webcam (AprilTags only)
         limelight = LimelightVision.tryCreate(hardwareMap, telemetry);
@@ -234,6 +232,8 @@ public abstract class BiobuzzPathAuto extends OpMode {
         boolean aimed = cell != null && Math.abs(error) <= AIM_TOL_DEG;
         if (aimed || stateTimer.milliseconds() > AIM_TIMEOUT_MS) {
             follower.setTeleOpDrive(0, 0, 0, true);
+            // Flywheel speed from the distance to the HIVE (ShotPlanner's table), if we can see it
+            shots.setRpm(cell != null ? ShotPlanner.rpmForRange(cell.rangeIn) : SHOOT_RPM);
             shots.start(secondVolley ? BALLS_AFTER_COLLECT : PRELOAD_BALLS);
             setState(State.SHOOT);
             return aimed ? "aimed at the HIVE" : "aim timeout - shooting from the path heading";
@@ -264,7 +264,7 @@ public abstract class BiobuzzPathAuto extends OpMode {
     }
 
     private void setIntake(double power) {
-        if (intake != null) intake.setPower(power);
+        if (hasIntake) intake.run(power);
     }
 
     /** Pedro pose from field inches and a heading in degrees. */

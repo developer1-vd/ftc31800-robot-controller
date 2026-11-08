@@ -13,6 +13,7 @@ import org.firstinspires.ftc.teamcode.mechanisms.RPM_per_dist;
 import org.firstinspires.ftc.teamcode.mechanisms.AprilTagWebcam;
 import org.firstinspires.ftc.teamcode.mechanisms.BallDetector;
 import org.firstinspires.ftc.teamcode.mechanisms.CellTarget;
+import org.firstinspires.ftc.teamcode.mechanisms.Intake;
 import org.firstinspires.ftc.teamcode.mechanisms.LimelightVision;
 import org.firstinspires.ftc.teamcode.mechanisms.LookAroundScanner;
 import org.firstinspires.ftc.teamcode.mechanisms.RGBIndicatorLight;
@@ -66,7 +67,8 @@ public class TeamBotTeleop_latest extends OpMode {
     private DcMotor backRight  = null;
 
     // Intake (312 rpm goBILDA)
-    private DcMotor intake = null;
+    // goBILDA Yellow Jacket 312 RPM: speed control + jam clearing (see Intake)
+    private final Intake intake = new Intake();
 
     // Flywheel (high-speed shooter)
     private DcMotorEx flywheel = null;
@@ -171,7 +173,6 @@ public class TeamBotTeleop_latest extends OpMode {
         frontRight = getMotor("right_front_drive");
         backLeft   = getMotor("left_back_drive");
         backRight  = getMotor("right_back_drive");
-        intake     = getMotor("intake");
         flywheel   = getMotorEx("launcher"); // needs DcMotorEx for velocity
 
 //        flywheel   = flywheeltuner.init(telemetry, hardwareMap, gamepad1);
@@ -180,7 +181,7 @@ public class TeamBotTeleop_latest extends OpMode {
         hasFrontRight = (frontRight != null);
         hasBackLeft   = (backLeft   != null);
         hasBackRight  = (backRight  != null);
-        hasIntake     = (intake     != null);
+        hasIntake     = intake.init(hardwareMap, telemetry, "intake");
         hasFlywheel   = (flywheel   != null);
 
         // Drivetrain directions
@@ -198,7 +199,6 @@ public class TeamBotTeleop_latest extends OpMode {
         if (hasFrontRight) frontRight.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         if (hasBackLeft)   backLeft.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         if (hasBackRight)  backRight.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
-        if (hasIntake)     intake.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
 
         if (hasFlywheel) {
             // Shooter usually FLOATS on zero, so wheel can spin down naturally.
@@ -400,7 +400,7 @@ public class TeamBotTeleop_latest extends OpMode {
         //----------------------------------
         // 2. INTAKE CONTROL (gamepad2 A/B/X)
         //----------------------------------
-        double intakePower = 0.0;
+        double intakePower = 0.0;      // +1 = in, -1 = out (Intake holds the speed, clears jams)
         if (gamepad2.a) {
             intakePower = 1.0;
         } else if (gamepad2.b) {
@@ -409,7 +409,8 @@ public class TeamBotTeleop_latest extends OpMode {
             intakePower = 0.0;
         }
         if (hasIntake) {
-            intake.setPower(intakePower);
+            intake.run(intakePower);
+            intake.addTelemetry();
         }
         //----------------------------------
         // 3. ARM SERVO CONTROL (ONE STEP PER PRESS)

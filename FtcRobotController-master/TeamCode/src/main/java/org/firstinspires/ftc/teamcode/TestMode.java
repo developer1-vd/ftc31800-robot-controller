@@ -80,6 +80,7 @@ public class TestMode extends OpMode {
             new Mode("Auto: camera collect + shoot, endless",         PracticeAutoEndless::new,   PRACTICE_MS, false),
             new Mode("Test: balls + color calibration + aim",         BallDetectionTest::new,     TEST_MS, false),
             new Mode("Test: Limelight",                               LimelightTest::new,         TEST_MS, false),
+            new Mode("Test: intake (Yellow Jacket 312)",              IntakeTest::new,            TEST_MS, false),
             // ---- Older TeleOps ----
             new Mode("Old TeleOp: TeamBotTeleop",                     TeamBotTeleop::new,         TELEOP_MS, false),
             new Mode("Old TeleOp: TeamBotTeleop_analytics",           TeamBotTeleop_analytics::new, TELEOP_MS, false),

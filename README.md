@@ -63,6 +63,7 @@ All robot code that gets built is under `FtcRobotController-master/TeamCode/src/
 - `mechanisms/BallDetector.java` — POLLEN / NECTAR detection, distance and bearing; spots robots by their alliance-color signs
 - `mechanisms/AprilTagWebcam.java` — HIVE CELL AprilTag clusters (SDK 12)
 - `mechanisms/LimelightVision.java` — **Limelight 3A** support: with both a Limelight and `Webcam 1`, the Limelight watches the HIVE AprilTags and the C270 finds the balls; with only a Limelight, it does both by switching pipelines (pipeline setup in `TEAMCODE_DOCUMENTATION.md`)
+- `mechanisms/Intake.java` — the intake on a goBILDA Yellow Jacket 312 RPM motor: speed control, jam clearing, one place to set which way is "in" (`IntakeTest` to try it)
 - `mechanisms/BallCollector.java`, `FeederLauncher.java`, `PinpointOdometry.java`, `RGBIndicatorLight.java` — subsystems
 - `pedroPathing/` — Pedro Pathing setup; the Near/Far Short autos in it are **last season's (DECODE)** and are disabled
 - `TEAMCODE_DOCUMENTATION.md` — detailed codebase, subsystem, and tuning documentation

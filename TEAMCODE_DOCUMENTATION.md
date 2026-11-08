@@ -295,6 +295,39 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
   `INTAKE_IN_POWER` is 1.0 (same as gamepad2 A in teleop); flip it if the intake spits balls out.
   Assumes camera and intake face the front of the robot.
 
+### 14. **Intake** (`mechanisms/Intake.java`, test: `IntakeTest`)
+- **Motor:** goBILDA Yellow Jacket **312 RPM** (19.2:1, **537.7 ticks/rev**, ~9.2 A stall) named
+  `intake`. Used by `TeamBotTeleop_latest` (gamepad2 A in / B out), all BallSpeakerAuto-based autos,
+  the path auto and `ShotSequencer` (feeding the launchers).
+- **Direction:** `run(+1)` = in, `run(-1)` = out. Which motor direction is "in" is set ONCE in
+  `Intake.INTAKE_DIRECTION` (FORWARD = the old teleop's A button). Flip it there if balls go out.
+- **Speed control:** with the encoder cable plugged in, holds `IN_RPM`/`OUT_RPM` (300) with the
+  hub's velocity control. Without an encoder (count never moves while current is low) it switches
+  to power mode by itself.
+- **Jam clearing:** pulling in at < 25% speed while drawing > 3 A for 0.3 s = jammed → reverse
+  0.25 s → pull in again. Not done while running out.
+- **IntakeTest** (also in TEST MODE): A in, B out, Y full in (jam test), D-pad speed; shows RPM,
+  current, jams and encoder status.
+
+### 13. **The auto's "brain"** (`BallSpeakerAuto` SMART_ flags, `BallChooser`, `ShotPlanner`)
+Used by every BallSpeakerAuto-based mode (BIOBUZZ autos, simple autos, practice autos, the teleop
+autopilot). Telemetry shows the current decision as **Brain: ...**. Each part can be turned off:
+- **SMART_SEARCH:** turns toward where it last saw a ball / the HIVE (using the Pinpoint heading)
+  instead of always turning left; after looking all the way around (360°, or 12 s without a
+  Pinpoint) it drives 24 in to a new spot (toward the field middle if `START_FIELD_*` is set) and
+  looks again; after 3 robot avoids within 15 s it moves somewhere less crowded.
+- **SMART_BALL_CHOICE (`BallChooser`):** cost = distance + 0.25 in per degree of turning − 8 in per
+  neighboring ball (within 14 in). Skips the opponent's NECTAR, balls against a wall (too close to
+  reach with the wall margin), balls straight behind a robot sign, balls it gave up on (10 s), and
+  balls there isn't time for.
+- **SMART_SHOOTING (`ShotPlanner`):** shoots from anywhere 24-60 in from the HIVE CELL with the
+  flywheel RPM interpolated from `ShotPlanner.RPM_TABLE` (**re-tune the table on the robot**),
+  and only once aimed and holding still for 0.3 s. The path auto also sets RPM from distance.
+- **SMART_TIME:** only chases a ball if there's time to collect it, then find/line up/shoot and
+  get home; goes to shoot what it holds when time gets short; shoots only as many balls as fit;
+  gives up on a ball it can't get within 7 s, and on shooting after 2 failed HIVE searches; heads
+  home based on the real distance home (minimum 2.5 s) instead of a fixed 6 s.
+
 ### 12. **More autonomous modes** and the TeleOp autopilot
 - **TeleOp AUTOPILOT** (`TeamBotTeleop_latest`, also in the phone TeleOp): gamepad1 **START** hands
   the robot to the camera auto (BallSpeakerAuto with no time limit: find balls, collect, aim at the

@@ -10,12 +10,15 @@ import com.qualcomm.robotcore.util.ElapsedTime;
 import com.qualcomm.robotcore.util.Range;
 
 import org.firstinspires.ftc.teamcode.mechanisms.AprilTagWebcam;
+import org.firstinspires.ftc.teamcode.mechanisms.BallChooser;
 import org.firstinspires.ftc.teamcode.mechanisms.BallDetector;
 import org.firstinspires.ftc.teamcode.mechanisms.CellTarget;
 import org.firstinspires.ftc.teamcode.mechanisms.FeederLauncher;
+import org.firstinspires.ftc.teamcode.mechanisms.Intake;
 import org.firstinspires.ftc.teamcode.mechanisms.LimelightVision;
 import org.firstinspires.ftc.teamcode.mechanisms.LookAroundScanner;
 import org.firstinspires.ftc.teamcode.mechanisms.PinpointOdometry;
+import org.firstinspires.ftc.teamcode.mechanisms.ShotPlanner;
 import org.firstinspires.ftc.teamcode.mechanisms.ShotSequencer;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
@@ -56,6 +59,19 @@ import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
  * Either way it stops and waits briefly (the other robot may move), then backs up, turns
  * away (alternating left/right), and goes back to what it was doing.
  *
+ * The "brain" (each part can be turned off with its SMART_ flag):
+ * - SMART_SEARCH: when it loses sight of something it turns toward where it last saw it; after
+ *   looking all the way around (360 deg) with nothing found it drives to a new spot (toward the
+ *   field middle if the field position is known) and looks again; if it keeps having to avoid
+ *   robots in one place it moves elsewhere. The HIVE search turns straight to where the HIVE was.
+ * - SMART_BALL_CHOICE (BallChooser): goes for the quickest ball (distance + turning), prefers
+ *   clusters, skips balls against walls, behind robots, or ones it recently gave up on.
+ * - SMART_SHOOTING (ShotPlanner): shoots from anywhere inside its RPM table's range with the
+ *   flywheel speed set from the HIVE distance, and only once aimed and holding still.
+ * - SMART_TIME: only chases a ball if there's time to get it AND still shoot and get home; goes to
+ *   shoot what it has when time gets short; gives up on a ball it can't reach (7 s), and on
+ *   shooting if the HIVE can't be found twice; heads home based on how far away home is.
+ *
  * The whole cycle (collect -> shoot -> return to start) repeats until AUTO_LENGTH_MS runs out.
  * FINAL_RETURN_MS before the end it stops whatever it is doing, drives back to the start
  * one last time, and stops.
@@ -91,8 +107,7 @@ public class BallSpeakerAuto extends OpMode {
     private static final double STOP_DISTANCE_IN   = 8.0;   // no intake: stop this far from the ball
 
     // Pickup (with intake)
-    // Intake power that pulls balls IN (matches gamepad2 A in TeamBotTeleop_latest).
-    // Flip the sign if the intake spits balls out.
+    // How hard to pull in (+1 = full IN_RPM). Which way is "in" is set in Intake.INTAKE_DIRECTION.
     private static final double INTAKE_IN_POWER     = 1.0;
     private static final double CAPTURE_DISTANCE_IN = 10.0;  // this close -> drive straight onto it
     private static final double CAPTURE_DRIVE       = 0.25;  // forward power while swallowing the ball
@@ -185,6 +200,48 @@ public class BallSpeakerAuto extends OpMode {
     private final LookAroundScanner ballScanner = new LookAroundScanner();
     private final LookAroundScanner goalScanner = new LookAroundScanner();
 
+    // ---- The "brain": each part can be turned off ----
+    private static final boolean SMART_SEARCH      = true;   // remember where things were, full scan, then move
+    private static final boolean SMART_BALL_CHOICE = true;   // quickest ball, skip walls/robots/given-up, clusters
+    private static final boolean SMART_SHOOTING    = true;   // RPM from HIVE distance, shoot only when steady
+    private static final boolean SMART_TIME        = true;   // plan around the clock
+    private static final double CHASE_GIVE_UP_MS     = 7000;  // chasing one ball this long without it -> give up
+    private static final double SCAN_NO_ODOM_MS      = 12000; // no Pinpoint: scanning this long ~ a full circle
+    private static final double RELOCATE_IN          = 24;    // then drive this far to look from a new spot
+    private static final double RELOCATE_POWER       = 0.35;
+    private static final double RELOCATE_NO_ODOM_MS  = 1500;
+    private static final double AIM_STEADY_MS        = 300;   // aimed + in range this long before shooting
+    private static final double STEADY_SPEED_IN_PER_S = 3;
+    private static final double LINE_UP_TIME_MS      = 3000;  // allowance to find + line up on the HIVE
+    private static final int    MAX_GOAL_FAILURES    = 2;     // give up shooting after this many failed searches
+    private static final int    AVOID_LOOP_COUNT     = 3;     // this many avoids...
+    private static final double AVOID_LOOP_WINDOW_MS = 15000; // ...this close together = crowded, move away
+    private static final double FINAL_RETURN_MIN_MS  = 2500;
+    private static final double ROBOT_FRONT_IN       = 9;     // robot center to the intake (half robot length)
+
+    private final BallChooser chooser = new BallChooser();
+    private BallChooser.Choice lastChoice = null;
+    private String brain = "";                       // latest decision, shown in telemetry
+    private final ElapsedTime clock = new ElapsedTime();
+    // Search memory
+    private double lastBallBearing = 1;              // + = it was to the LEFT
+    private double lastBallHeadingDeg = Double.NaN;  // odometry heading it was seen at
+    private double lastGoalHeadingDeg = Double.NaN;
+    private double lastGoalRange = ShotPlanner.MIN_RANGE_IN;
+    private boolean goalMemoryUsed = false;
+    private double scanTurnedDeg = 0, scanPrevHeading = Double.NaN;
+    private boolean relocating = false, relocateForced = false, relocateRequested = false;
+    private double relocateStartX = 0, relocateStartY = 0;
+    private final ElapsedTime relocateTimer = new ElapsedTime();
+    // Chase / shooting / failure memory
+    private double chaseX = Double.NaN, chaseY = Double.NaN;
+    private final ElapsedTime chaseTimer = new ElapsedTime();
+    private boolean steady = false;
+    private final ElapsedTime steadyTimer = new ElapsedTime();
+    private int goalFailures = 0;
+    private boolean shootingGivenUp = false;
+    private final java.util.ArrayDeque<Long> avoidTimes = new java.util.ArrayDeque<>();
+
     // Leaving the wall at the start (competition autos): drive forward this far / this long
     private static final double LEAVE_WALL_POWER = 0.3;
     private static final double LEAVE_WALL_MS    = 1500;   // time limit (and the only limit without Pinpoint)
@@ -216,7 +273,8 @@ public class BallSpeakerAuto extends OpMode {
     private DcMotor frontRight = null;
     private DcMotor backLeft   = null;
     private DcMotor backRight  = null;
-    private DcMotor intake     = null;
+    private final Intake intake = new Intake();   // goBILDA Yellow Jacket 312 RPM
+    private boolean hasIntake  = false;
     private Servo   arm        = null;
     private PinpointOdometry odometry = null;   // null if no "pinpoint" configured
     private DistanceSensor frontDistance = null; // null if no "frontDistance" configured
@@ -243,7 +301,7 @@ public class BallSpeakerAuto extends OpMode {
         frontRight = getMotor("right_front_drive");
         backLeft   = getMotor("left_back_drive");
         backRight  = getMotor("right_back_drive");
-        intake     = getMotor("intake");
+        hasIntake  = intake.init(hardwareMap, telemetry, "intake");
         hasLauncher = getMotor("launcher") != null;
         hasDrive = frontLeft != null || frontRight != null || backLeft != null || backRight != null;
 
@@ -251,7 +309,7 @@ public class BallSpeakerAuto extends OpMode {
         if (backLeft   != null) backLeft.setDirection(DcMotor.Direction.REVERSE);
         if (frontRight != null) frontRight.setDirection(DcMotor.Direction.FORWARD);
         if (backRight  != null) backRight.setDirection(DcMotor.Direction.FORWARD);
-        for (DcMotor m : new DcMotor[] { frontLeft, frontRight, backLeft, backRight, intake }) {
+        for (DcMotor m : new DcMotor[] { frontLeft, frontRight, backLeft, backRight }) {
             if (m != null) m.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         }
 
@@ -279,7 +337,7 @@ public class BallSpeakerAuto extends OpMode {
         if (hasLauncher) {
             leftLauncher.init(hardwareMap, telemetry, "launcher", "feederServoLeft");
             rightLauncher.init(hardwareMap, telemetry, "launcher", "feederServoRight");
-            shots = new ShotSequencer(leftLauncher, rightLauncher, intake, INTAKE_IN_POWER,
+            shots = new ShotSequencer(leftLauncher, rightLauncher, hasIntake ? intake : null, INTAKE_IN_POWER,
                     SHOOT_RPM, FEED_INTAKE_MS, SHOT_DELAY_MS);
         }
         try {
@@ -357,6 +415,11 @@ public class BallSpeakerAuto extends OpMode {
     public void start() {
         if (arm != null && canShoot()) arm.setPosition(SHOOT_ARM_POSITION);
         if (odometry != null) odometry.setPose(0, 0, 0);   // remember this spot as "start"
+        // A ball this close to a wall can't be reached: the wall filter keeps the robot's center
+        // WALL_MARGIN_IN away and the intake is ROBOT_FRONT_IN in front of it
+        chooser.setWallCheck((wx, wy) -> wallsActive()
+                && nearWallAt(fieldXOf(wx, wy), fieldYOf(wx, wy), WALL_MARGIN_IN - ROBOT_FRONT_IN));
+        clock.reset();
         lastBallSeenTimer.reset();
         matchTimer.reset();
         started = true;
@@ -463,11 +526,14 @@ public class BallSpeakerAuto extends OpMode {
 
             case SEEK:
             default:
-                // Holding balls but none left in view: go shoot what we have
-                if (canShoot() && ballsCollected > 0
-                        && lastBallSeenTimer.milliseconds() > SHOOT_WHEN_IDLE_MS) {
+                // Holding balls but none left in view, or time getting short: go shoot what we have
+                boolean idle = lastBallSeenTimer.milliseconds() > SHOOT_WHEN_IDLE_MS;
+                boolean timeShort = SMART_TIME && msLeft() < LINE_UP_TIME_MS
+                        + ShotPlanner.shootTimeMs(ballsCollected, FEED_INTAKE_MS, SHOT_DELAY_MS) + finalReturnMs() + 2000;
+                if (canShoot() && ballsCollected > 0 && (idle || timeShort)) {
                     setState(State.FIND_GOAL);
-                    status = "no more balls - going to shoot";
+                    status = timeShort ? "time is short - going to shoot" : "no more balls - going to shoot";
+                    brain = status;
                 } else {
                     status = seek();
                 }
@@ -488,13 +554,35 @@ public class BallSpeakerAuto extends OpMode {
         report();
     }
 
-    /** Closest ball we want: yellow POLLEN or our alliance's NECTAR (balls are sorted closest first). */
-    private BallDetector.Ball closestWantedBall() {
+    /**
+     * The ball to go for: with SMART_BALL_CHOICE the quickest worthwhile one (BallChooser),
+     * otherwise the closest yellow POLLEN / our alliance's NECTAR.
+     */
+    private BallDetector.Ball chooseBall() {
         BallDetector.BallColor opponent = redAlliance() ? BallDetector.BallColor.BLUE : BallDetector.BallColor.RED;
-        for (BallDetector.Ball ball : ballDetector.getBalls()) {
-            if (ball.color != opponent) return ball;
+        if (!SMART_BALL_CHOICE) {
+            lastChoice = null;
+            for (BallDetector.Ball ball : ballDetector.getBalls()) {
+                if (ball.color != opponent) return ball;
+            }
+            return null;
         }
-        return null;
+        boolean pose = odometry != null && started;
+        lastChoice = chooser.choose(ballDetector.getBalls(), opponent, pose,
+                pose ? odometry.getX() : 0, pose ? odometry.getY() : 0,
+                pose ? Math.toRadians(odometry.getHeadingDeg()) : 0,
+                ballDetector.getRobotBlobs(),
+                SMART_TIME ? msLeft() : Double.POSITIVE_INFINITY,
+                SMART_TIME ? msNeededAfterCollect() : 0, (long) clock.milliseconds());
+        brain = lastChoice.why;
+        return lastChoice.ball;
+    }
+
+    /** Time still needed after picking up one more ball: find + line up + shoot, then go home. */
+    private double msNeededAfterCollect() {
+        double shoot = canShoot()
+                ? LINE_UP_TIME_MS + ShotPlanner.shootTimeMs(ballsCollected + 1, FEED_INTAKE_MS, SHOT_DELAY_MS) : 0;
+        return shoot + finalReturnMs();
     }
 
     /** Turn toward and drive to the closest ball. Returns a status line. */
@@ -503,17 +591,44 @@ public class BallSpeakerAuto extends OpMode {
             goFinalTrip();
             return "not collecting - finishing";
         }
-        BallDetector.Ball ball = closestWantedBall();
+        // Crowded here (kept having to avoid robots): move somewhere else first
+        if (relocateRequested) startRelocate(true);
+        if (relocating && relocateForced) return relocate();
+
+        BallDetector.Ball ball = chooseBall();
         if (!TURN_TO_BALL || ball == null) {
             setIntake(0);
+            chaseX = Double.NaN;
             if (TURN_TO_BALL && LOOK_AROUND_FOR_BALLS && hasDrive && started) {
-                setDrivePower(0, ballScanner.turnPower());
-                return ballScanner.isTurning() ? "no ball - turning to look" : "no ball - looking";
+                return smartSearch();
             }
             setDrivePower(0, 0);
             return "no ball - holding still";
         }
         ballScanner.reset();
+        relocating = false;
+        scanTurnedDeg = 0;
+
+        // Remember where it was, to look there first if it's lost
+        lastBallBearing = ball.bearing;
+        lastBallHeadingDeg = odometry != null ? odometry.getHeadingDeg() + ball.bearing : Double.NaN;
+
+        // Give up on a ball it can't seem to get (blocked, rolling away...) and pick another
+        if (SMART_TIME && odometry != null && lastChoice != null && lastChoice.ball != null && started) {
+            if (Double.isNaN(chaseX) || Math.hypot(lastChoice.worldX - chaseX, lastChoice.worldY - chaseY) > 15) {
+                chaseX = lastChoice.worldX;
+                chaseY = lastChoice.worldY;
+                chaseTimer.reset();
+            } else if (chaseTimer.milliseconds() > CHASE_GIVE_UP_MS) {
+                chooser.giveUpOn(chaseX, chaseY, (long) clock.milliseconds());
+                chaseX = Double.NaN;
+                setDrivePower(0, 0);
+                setIntake(0);
+                brain = "gave up on a ball it couldn't get";
+                ballDetector.announce("skip");
+                return brain;
+            }
+        }
 
         double turn = 0;     // + = turn right (same as right stick in teleop)
         double forward = 0;  // + = drive forward
@@ -559,6 +674,80 @@ public class BallSpeakerAuto extends OpMode {
         return (forward > 0 ? "driving to " : "turning to ") + ball.color + " ball";
     }
 
+    /**
+     * No ball in view. Look toward where one was last seen first; after a full circle (or
+     * SCAN_NO_ODOM_MS without Pinpoint) with nothing, drive to a new spot and look again.
+     */
+    private String smartSearch() {
+        if (relocating) return relocate();
+        if (SMART_SEARCH) {
+            if (ballScanner.searchMs() == 0) {   // a new search: turn toward where the ball was
+                double toward = lastBallBearing;
+                if (odometry != null && !Double.isNaN(lastBallHeadingDeg)) {
+                    toward = AngleUnit.normalizeDegrees(lastBallHeadingDeg - odometry.getHeadingDeg());
+                }
+                ballScanner.searchToward(toward);
+                scanTurnedDeg = 0;
+                scanPrevHeading = Double.NaN;
+            }
+            if (odometry != null) {
+                double h = odometry.getHeadingDeg();
+                if (!Double.isNaN(scanPrevHeading)) scanTurnedDeg += Math.abs(AngleUnit.normalizeDegrees(h - scanPrevHeading));
+                scanPrevHeading = h;
+            }
+            boolean lookedEverywhere = odometry != null ? scanTurnedDeg >= 360
+                    : ballScanner.searchMs() > SCAN_NO_ODOM_MS;
+            if (lookedEverywhere) {
+                startRelocate(false);
+                return relocate();
+            }
+        }
+        setDrivePower(0, ballScanner.turnPower());
+        brain = SMART_SEARCH ? String.format("searching %s (%.0f deg looked)",
+                ballScanner.getDirection() < 0 ? "left" : "right", scanTurnedDeg) : "searching";
+        return ballScanner.isTurning() ? "no ball - turning to look" : "no ball - looking";
+    }
+
+    private void startRelocate(boolean forced) {
+        relocating = true;
+        relocateForced = forced;
+        relocateRequested = false;
+        relocateTimer.reset();
+        if (odometry != null) {
+            relocateStartX = odometry.getX();
+            relocateStartY = odometry.getY();
+        }
+        ballScanner.reset();
+        scanTurnedDeg = 0;
+        brain = forced ? "crowded here - moving somewhere else" : "nothing here - looking from a new spot";
+        ballDetector.announce("moving");
+    }
+
+    /** Drive RELOCATE_IN to a new spot: toward the field middle if the field position is known. */
+    private String relocate() {
+        boolean far = odometry != null
+                ? Math.hypot(odometry.getX() - relocateStartX, odometry.getY() - relocateStartY) >= RELOCATE_IN
+                : relocateTimer.milliseconds() > RELOCATE_NO_ODOM_MS;
+        if (far || relocateTimer.milliseconds() > 4000) {
+            relocating = false;
+            setDrivePower(0, 0, 0);
+            ballScanner.reset();
+            return "at a new spot - looking";
+        }
+        double turn = 0;
+        if (wallsActive()) {
+            double toMiddle = Math.toDegrees(Math.atan2(FIELD_SIZE_IN / 2 - fieldY(), FIELD_SIZE_IN / 2 - fieldX()));
+            double err = AngleUnit.normalizeDegrees(toMiddle - Math.toDegrees(fieldHeadingRad()));   // + = LEFT
+            turn = Range.clip(-err * TURN_GAIN, -MAX_TURN, MAX_TURN);
+            if (Math.abs(err) > 30) {
+                setDrivePower(0, turn);
+                return "turning toward the field middle";
+            }
+        }
+        setDrivePower(RELOCATE_POWER, turn);
+        return "moving to look from a new spot";
+    }
+
     // -------------------------------------------------
     // Shooting
     // -------------------------------------------------
@@ -568,6 +757,7 @@ public class BallSpeakerAuto extends OpMode {
         setIntake(0);
         if (getGoalTag() != null) {
             goalScanner.reset();
+            goalFailures = 0;
             goalLastSeenTimer.reset();
             setState(State.LINE_UP);
             return "found goal";
@@ -575,6 +765,11 @@ public class BallSpeakerAuto extends OpMode {
         if (stateTimer.milliseconds() > GOAL_SEARCH_MS) {
             setDrivePower(0, 0);
             ballDetector.announce("can't find goal");
+            goalFailures++;
+            if (SMART_TIME && goalFailures >= MAX_GOAL_FAILURES) {
+                shootingGivenUp = true;   // stop wasting time on it (canShoot() is now false)
+                brain = "couldn't find the HIVE twice - stopped trying to shoot";
+            }
             // Full: stop here. Otherwise keep collecting and try again later.
             if (!collectBalls()) {
                 goFinalTrip();   // simple autos: no HIVE found, so just go park
@@ -583,6 +778,17 @@ public class BallSpeakerAuto extends OpMode {
             }
             lastBallSeenTimer.reset();
             return "can't find goal";
+        }
+        // Turn straight to where the HIVE was last seen, then look around from there
+        if (SMART_SEARCH && odometry != null && !Double.isNaN(lastGoalHeadingDeg) && !goalMemoryUsed) {
+            double err = AngleUnit.normalizeDegrees(lastGoalHeadingDeg - odometry.getHeadingDeg());   // + = LEFT
+            if (Math.abs(err) > 15) {
+                setDrivePower(0, Range.clip(-err * TURN_GAIN, -MAX_TURN, MAX_TURN));
+                brain = String.format("turning to where the HIVE was (%.0f deg)", err);
+                return "turning to where the HIVE was";
+            }
+            goalMemoryUsed = true;
+            goalScanner.searchToward(err);
         }
         // Turn to look for the HIVE in steps (sharper camera images while still)
         setDrivePower(0, goalScanner.turnPower());
@@ -603,14 +809,34 @@ public class BallSpeakerAuto extends OpMode {
 
         double bearingError = tag.bearingDeg - SHOOT_BEARING_DEG;   // + = goal is LEFT
         double rangeError   = tag.rangeIn - SHOOT_RANGE_IN;         // + = too far
+        boolean inRange     = Math.abs(rangeError) <= SHOOT_RANGE_TOL_IN;
+        if (SMART_SHOOTING) {
+            // Flywheel speed follows the distance, so anywhere inside the RPM table is fine
+            inRange = ShotPlanner.inShootingRange(tag.rangeIn);
+            rangeError = tag.rangeIn < ShotPlanner.MIN_RANGE_IN ? tag.rangeIn - ShotPlanner.MIN_RANGE_IN
+                    : tag.rangeIn > ShotPlanner.MAX_RANGE_IN ? tag.rangeIn - ShotPlanner.MAX_RANGE_IN : 0;
+        }
+        lastGoalRange = tag.rangeIn;
+        if (odometry != null) lastGoalHeadingDeg = odometry.getHeadingDeg() + tag.bearingDeg;
 
         boolean aimed   = Math.abs(bearingError) <= SHOOT_BEARING_TOL_DEG;
-        boolean inRange = Math.abs(rangeError) <= SHOOT_RANGE_TOL_IN;
         if (aimed && inRange) {
             setDrivePower(0, 0);
+            if (SMART_SHOOTING) {
+                // Shoot only once aimed AND holding still for a moment
+                boolean still = odometry == null
+                        || Math.hypot(odometry.getVelocityX(), odometry.getVelocityY()) < STEADY_SPEED_IN_PER_S;
+                if (!steady || !still) {
+                    steady = true;
+                    steadyTimer.reset();
+                }
+                if (steadyTimer.milliseconds() < AIM_STEADY_MS) return "aimed - holding steady";
+            }
+            steady = false;
             startShooting();
             return "in shoot zone";
         }
+        steady = false;
 
         double turn = aimed ? 0 : Range.clip(-bearingError * TURN_GAIN, -MAX_TURN, MAX_TURN);
         double forward = 0;
@@ -623,7 +849,20 @@ public class BallSpeakerAuto extends OpMode {
     }
 
     private void startShooting() {
-        shots.start(ballsCollected);
+        int balls = ballsCollected;
+        if (SMART_TIME) {
+            // Only shoot what fits before it has to head home
+            int fit = ShotPlanner.ballsThatFit(balls, msLeft() - finalReturnMs(), FEED_INTAKE_MS, SHOT_DELAY_MS);
+            if (fit <= 0) {
+                brain = "no time left to shoot - going home";
+                goFinalTrip();
+                return;
+            }
+            balls = Math.min(fit, Math.max(balls, 1));
+        }
+        if (SMART_SHOOTING) shots.setRpm(ShotPlanner.rpmForRange(lastGoalRange));
+        brain = String.format("shooting %d from %.0f in at %.0f RPM", balls, lastGoalRange, shots.getRpm());
+        shots.start(balls);
         ballDetector.announce("shooting");
         setState(State.SHOOT);
     }
@@ -786,6 +1025,15 @@ public class BallSpeakerAuto extends OpMode {
         } else {
             resumeState = State.SEEK;
         }
+        // Avoiding again and again here = crowded: move somewhere else afterwards
+        long now = (long) clock.milliseconds();
+        avoidTimes.add(now);
+        while (!avoidTimes.isEmpty() && now - avoidTimes.peekFirst() > AVOID_LOOP_WINDOW_MS) avoidTimes.pollFirst();
+        if (SMART_SEARCH && avoidTimes.size() >= AVOID_LOOP_COUNT && resumeState == State.SEEK) {
+            relocateRequested = true;
+            avoidTimes.clear();
+            brain = "crowded here - will move somewhere else";
+        }
         avoidBySensor = bySensor;
         avoidStep = wait ? AvoidStep.WAIT : AvoidStep.BACK_UP;
         avoidTimer.reset();
@@ -857,12 +1105,26 @@ public class BallSpeakerAuto extends OpMode {
             setState(State.DONE);
             return;
         }
-        if (!finalReturn && canReturnHome() && msLeft() < FINAL_RETURN_MS) {
+        if (!finalReturn && canReturnHome() && msLeft() < finalReturnMs()) {
             finalReturn = true;
             stopEverything();
             ballDetector.announce("going home");
             setState(State.RETURN_HOME);
         }
+    }
+
+    /**
+     * How long before the end to head home for the last time: with SMART_TIME, based on how far
+     * home (or the park spot) is; otherwise FINAL_RETURN_MS.
+     */
+    private double finalReturnMs() {
+        if (!SMART_TIME || odometry == null) return FINAL_RETURN_MS;
+        boolean was = finalReturn;
+        finalReturn = true;                  // where the LAST trip goes (park spot if set)
+        double[] t = homeTarget();
+        finalReturn = was;
+        double distance = Math.hypot(t[0] - odometry.getX(), t[1] - odometry.getY());
+        return Math.max(FINAL_RETURN_MIN_MS, ShotPlanner.driveTimeMs(distance));
     }
 
     /** Head home / park for the last time now (then stop). */
@@ -894,6 +1156,21 @@ public class BallSpeakerAuto extends OpMode {
     }
 
     /** Robot position in field coordinates (0-144 in), from the start pose + odometry. */
+    /** Field position (0-144 in) of a point in the odometry frame. */
+    private double fieldXOf(double ox, double oy) {
+        double h = Math.toRadians(START_FIELD_HEADING_DEG);
+        return START_FIELD_X + ox * Math.cos(h) - oy * Math.sin(h);
+    }
+
+    private double fieldYOf(double ox, double oy) {
+        double h = Math.toRadians(START_FIELD_HEADING_DEG);
+        return START_FIELD_Y + ox * Math.sin(h) + oy * Math.cos(h);
+    }
+
+    private static boolean nearWallAt(double fx, double fy, double margin) {
+        return fx < margin || fx > FIELD_SIZE_IN - margin || fy < margin || fy > FIELD_SIZE_IN - margin;
+    }
+
     private double fieldX() {
         double h = Math.toRadians(START_FIELD_HEADING_DEG);
         return START_FIELD_X + odometry.getX() * Math.cos(h) - odometry.getY() * Math.sin(h);
@@ -973,19 +1250,24 @@ public class BallSpeakerAuto extends OpMode {
     }
 
     private boolean canShoot() {
-        return SHOOT_BALLS && canPickUp() && hasLauncher;
+        return SHOOT_BALLS && canPickUp() && hasLauncher && !shootingGivenUp;
     }
 
     private boolean canPickUp() {
-        return PICK_UP_BALL && DRIVE_TO_BALL && TURN_TO_BALL && hasDrive && intake != null;
+        return PICK_UP_BALL && DRIVE_TO_BALL && TURN_TO_BALL && hasDrive && hasIntake;
     }
 
     private void setState(State newState) {
+        if (newState == State.FIND_GOAL && state != State.FIND_GOAL) {
+            goalMemoryUsed = false;   // a new HIVE search: try where it was last seen first
+            goalScanner.reset();
+        }
         state = newState;
         stateTimer.reset();
     }
 
     private void report() {
+        if (!brain.isEmpty()) telemetry.addData("Brain", brain);
         if (started) {
             telemetry.addData("Time left", "%.1f s", Math.max(0, msLeft()) / 1000.0);
         }
@@ -993,7 +1275,7 @@ public class BallSpeakerAuto extends OpMode {
         if (limelight != null) limelight.displayTelemetry();
         telemetry.addData("Sound", ballDetector.isSoundEnabled() ? "ON" : "OFF");
         telemetry.addData("Drive", hasDrive ? "connected" : "none (camera-only)");
-        telemetry.addData("Intake", intake != null ? "connected" : "none");
+        if (hasIntake) intake.addTelemetry(); else telemetry.addData("Intake", "none");
         telemetry.addData("Launcher", hasLauncher ? "connected" : "none");
         if (frontDistance != null) {
             telemetry.addData("Front distance", "%.1f in", frontDistance.getDistance(DistanceUnit.INCH));
@@ -1039,7 +1321,7 @@ public class BallSpeakerAuto extends OpMode {
     }
 
     private void setIntake(double power) {
-        if (intake != null) intake.setPower(power);
+        if (hasIntake) intake.run(power);
     }
 
     @Override
