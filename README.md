@@ -49,6 +49,7 @@ All robot code that gets built is under `FtcRobotController-master/TeamCode/src/
 
 | OpMode | Type | What it does |
 |---|---|---|
+| **TEST MODE (everything)** | TeleOp | Runs any mode from one menu (driver TeleOp, phone controls, BIOBUZZ autos, 2-minute camera auto practice, ball and Limelight tests). D-pad + A to pick; click **both sticks** to stop and return to the menu |
 | **BIOBUZZ Auto RED** / **BIOBUZZ Auto BLUE** | Auto | Competition autos: leave the wall, LAUNCH the 4 preloads into our HIVE CELL, collect and LAUNCH more POLLEN, finish off the wall (or PARK) |
 | `TeamBotTeleop_latest` | TeleOp | Main driver control; HIVE CELL shoot-ready light; ball auto-aim (gamepad1 LB / X / B / Y) |
 | `BallSpeakerAuto` | Auto | Practice version of the BIOBUZZ auto (no preloads); works with just a camera too |

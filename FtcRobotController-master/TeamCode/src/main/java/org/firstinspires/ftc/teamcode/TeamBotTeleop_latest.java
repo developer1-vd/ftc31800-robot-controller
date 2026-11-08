@@ -14,6 +14,7 @@ import org.firstinspires.ftc.teamcode.mechanisms.AprilTagWebcam;
 import org.firstinspires.ftc.teamcode.mechanisms.BallDetector;
 import org.firstinspires.ftc.teamcode.mechanisms.CellTarget;
 import org.firstinspires.ftc.teamcode.mechanisms.LimelightVision;
+import org.firstinspires.ftc.teamcode.mechanisms.LookAroundScanner;
 import org.firstinspires.ftc.teamcode.mechanisms.RGBIndicatorLight;
 
 @TeleOp(name="TeamBotTeleop_latest", group="Drive")
@@ -43,6 +44,10 @@ public class TeamBotTeleop_latest extends OpMode {
     // gamepad1 BACK toggles it during the match.
     private static final boolean SOUND_ENABLED = true;
     private boolean lastSoundToggle = false;
+
+    // Turn to look: holding an aim button with no matching ball in view turns the robot in steps
+    private static final boolean LOOK_AROUND_WHEN_AIMING = true;
+    private final LookAroundScanner ballScanner = new LookAroundScanner();
 
     // Debounce for shoot-ready indicator
     private int shootInRangeCount = 0;
@@ -349,6 +354,7 @@ public class TeamBotTeleop_latest extends OpMode {
 
         boolean ballAiming = gamepad1.left_bumper || gamepad1.x || gamepad1.b || gamepad1.y;
         if (ballAiming && ballTarget != null) {
+            ballScanner.reset();
             // bearing > 0 means ball is to the LEFT, so turn left (negative rx)
             if (Math.abs(ballTarget.bearing) > BALL_AIM_TOLERANCE) {
                 rx = Range.clip(-ballTarget.bearing * BALL_TURN_GAIN,
@@ -356,6 +362,11 @@ public class TeamBotTeleop_latest extends OpMode {
             } else {
                 rx = 0;
             }
+        } else if (ballAiming && LOOK_AROUND_WHEN_AIMING && Math.abs(gamepad1.right_stick_x) < 0.1) {
+            // No ball in view: turn to look (the driver's own turning always wins)
+            rx = ballScanner.turnPower();
+        } else {
+            ballScanner.reset();
         }
 
         double flPower = y + x + rx;
@@ -621,7 +632,7 @@ public class TeamBotTeleop_latest extends OpMode {
         if (ballAiming) {
             telemetry.addData("Ball Aim", ballTarget != null
                     ? "AIMING at " + ballTarget.color
-                    : "no matching ball in view");
+                    : "no matching ball in view - turning to look");
         }
 
         telemetry.addLine("== INTAKE ==");

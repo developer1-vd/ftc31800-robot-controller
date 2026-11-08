@@ -295,6 +295,20 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
   `INTAKE_IN_POWER` is 1.0 (same as gamepad2 A in teleop); flip it if the intake spits balls out.
   Assumes camera and intake face the front of the robot.
 
+### 11. **TEST MODE (everything)** (`TestMode.java`) and turn-to-look (`mechanisms/LookAroundScanner.java`)
+- **TEST MODE:** one TeleOp that hosts the other OpModes, so you can try everything without going
+  back to the Driver Station list: driver TeleOp, TeleOp + phone controls, BIOBUZZ Auto RED/BLUE,
+  a 2-minute camera collect-and-shoot practice auto, BallDetectionTest and LimelightTest.
+  gamepad1 D-pad UP/DOWN + A to pick (Play starts the first pick); clicking **both joystick
+  buttons** stops the mode, sets every motor and CR servo to 0, and returns to the menu. A crash in
+  a mode is caught and shown on the menu. Practice only — use the real OpModes in matches.
+- **Turn to look:** with no ball in view, the auto turns in place in steps (turn 0.35 s, hold still
+  0.45 s so the camera image is sharp) to search, and does the same to find the HIVE. In
+  `TeamBotTeleop_latest` and `BallDetectionTest`, holding an aim button (LB/X/B/Y) with no matching
+  ball in view does the same, unless the driver is turning with the right stick.
+  (`LOOK_AROUND_FOR_BALLS`, `LOOK_AROUND_WHEN_AIMING` turn it off.) The auto now waits 6 s without
+  seeing a ball (was 3 s) before going to shoot what it holds, so it has time to look around.
+
 ### 10. **PhoneGamepadServer** (`mechanisms/PhoneGamepadServer.java`, `assets/phone_gamepad.html`)
 - **Purpose:** practice/demo phone touchscreen controls. A tiny web server on the Control Hub
   (port **8090**) serves a control page (two joysticks, D-pad, A/B/X/Y, bumpers, triggers,

@@ -14,6 +14,7 @@ import org.firstinspires.ftc.teamcode.mechanisms.BallDetector;
 import org.firstinspires.ftc.teamcode.mechanisms.CellTarget;
 import org.firstinspires.ftc.teamcode.mechanisms.FeederLauncher;
 import org.firstinspires.ftc.teamcode.mechanisms.LimelightVision;
+import org.firstinspires.ftc.teamcode.mechanisms.LookAroundScanner;
 import org.firstinspires.ftc.teamcode.mechanisms.PinpointOdometry;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
@@ -113,10 +114,9 @@ public class BallSpeakerAuto extends OpMode {
     private static final double SHOOT_BEARING_TOL_DEG = 3.0;
     private static final double SHOOT_RPM             = 2400;   // teleop default / RT preset
     private static final double SHOOT_ARM_POSITION    = 0.5;    // same arm position the autos use
-    private static final double GOAL_SEARCH_TURN      = 0.2;    // turn power while looking for the goal
     private static final double GOAL_SEARCH_MS        = 6000;   // give up finding the goal after this
     private static final double GOAL_LOST_MS          = 500;    // tag unseen this long -> search again
-    private static final double SHOOT_WHEN_IDLE_MS    = 3000;   // holding balls, none in view -> go shoot
+    private static final double SHOOT_WHEN_IDLE_MS    = 6000;   // holding balls, none in view -> go shoot
     private static final double FEED_INTAKE_MS        = 1000;   // intake run that moves balls to feeders
     private static final double SHOT_DELAY_MS         = 2000;   // between shots (same as the autos)
     private static final double SHOOT_TIMEOUT_MS      = 15000;  // safety: give up a stuck shot sequence
@@ -178,6 +178,11 @@ public class BallSpeakerAuto extends OpMode {
     private static final double ROBOT_CLOSE_WIDTH    = 0.30;   // blob this wide (fraction of image) = close
     private static final double ROBOT_AHEAD_DEG      = 20.0;   // blob within this angle of center = in our path
     private static final double ROBOT_MIN_IMAGE_Y    = 0.30;   // ignore blobs in the top 30% (the HIVE)
+
+    // Turn to look: with no ball in view, turn in place in steps to search (see LookAroundScanner)
+    private static final boolean LOOK_AROUND_FOR_BALLS = true;
+    private final LookAroundScanner ballScanner = new LookAroundScanner();
+    private final LookAroundScanner goalScanner = new LookAroundScanner();
 
     // Leaving the wall at the start (competition autos): drive forward this far / this long
     private static final double LEAVE_WALL_POWER = 0.3;
@@ -330,6 +335,11 @@ public class BallSpeakerAuto extends OpMode {
     /** Balls already in the robot at Play (BIOBUZZ robots start with 4 POLLEN). Shot first. */
     protected int preloadedBalls() {
         return 0;
+    }
+
+    /** How long the run lasts before the final trip home and stop (TEST MODE uses a longer one). */
+    protected double autoLengthMs() {
+        return AUTO_LENGTH_MS;
     }
 
     /** Drive off the perimeter wall first (BIOBUZZ LEAVE = not touching the wall at the end of AUTO). */
@@ -485,10 +495,15 @@ public class BallSpeakerAuto extends OpMode {
     private String seek() {
         BallDetector.Ball ball = closestWantedBall();
         if (!TURN_TO_BALL || ball == null) {
-            setDrivePower(0, 0);
             setIntake(0);
+            if (TURN_TO_BALL && LOOK_AROUND_FOR_BALLS && hasDrive && started) {
+                setDrivePower(0, ballScanner.turnPower());
+                return ballScanner.isTurning() ? "no ball - turning to look" : "no ball - looking";
+            }
+            setDrivePower(0, 0);
             return "no ball - holding still";
         }
+        ballScanner.reset();
 
         double turn = 0;     // + = turn right (same as right stick in teleop)
         double forward = 0;  // + = drive forward
@@ -542,6 +557,7 @@ public class BallSpeakerAuto extends OpMode {
     private String findGoal() {
         setIntake(0);
         if (getGoalTag() != null) {
+            goalScanner.reset();
             goalLastSeenTimer.reset();
             setState(State.LINE_UP);
             return "found goal";
@@ -554,8 +570,9 @@ public class BallSpeakerAuto extends OpMode {
             lastBallSeenTimer.reset();
             return "can't find goal";
         }
-        setDrivePower(0, -GOAL_SEARCH_TURN);   // turn left slowly
-        return "looking for goal";
+        // Turn to look for the HIVE in steps (sharper camera images while still)
+        setDrivePower(0, goalScanner.turnPower());
+        return goalScanner.isTurning() ? "turning to look for the HIVE" : "looking for the HIVE";
     }
 
     /** Turn to face the goal and drive into the shoot zone. */
@@ -857,7 +874,7 @@ public class BallSpeakerAuto extends OpMode {
     // -------------------------------------------------
 
     private double msLeft() {
-        return AUTO_LENGTH_MS - matchTimer.milliseconds();
+        return autoLengthMs() - matchTimer.milliseconds();
     }
 
     /** Near the end, drop everything and head back to the start; at the end, stop. */
