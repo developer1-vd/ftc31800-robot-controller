@@ -311,7 +311,8 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
   telemetry says so and lists the motor names that ARE in the configuration.
 - **Jam clearing (needs the encoder cable):** only after the encoder has been seen moving. Pulling
   in at < 25% speed while drawing > 3 A for 0.3 s = jammed → reverse 0.25 s → pull in again.
-- **IntakeTest** (also in TEST MODE): A in, B out, Y full in (jam test), D-pad speed, **X = RAW**
+- **IntakeTest** (also in TEST MODE): **autoruns IN from Play**; Y = off/on, A = on, hold B = out,
+  D-pad speed (gamepad1 or gamepad2), **X = RAW**
   full power straight to the motor (skips the Intake class: if X doesn't turn it, it's wiring or
   configuration). Shows RPM, current, jams, encoder status and any problem.
 

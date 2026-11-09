@@ -417,6 +417,7 @@ public class TeamBotTeleop_latest extends OpMode {
         }
         if (hasIntake) {
             intake.run(intakePower);
+            telemetry.addData("Intake autorun", intakeAutoOn ? "ON (gamepad2 Y = off)" : "OFF (gamepad2 Y or A = on)");
             intake.addTelemetry();
         }
         //----------------------------------
