@@ -101,6 +101,15 @@ public class TeamBotTeleop_latest extends OpMode {
     private static final boolean INTAKE_AUTORUN = true;
     private boolean intakeAutoOn = false;
     private boolean lastIntakeToggle = false;
+    // Intake COMPETITION MODE: only spin when the camera sees a ball to pick up (gamepad2 D-pad UP).
+    private static final boolean INTAKE_COMPETITION_MODE = true;   // on at Play
+    private static final double INTAKE_SEE_DIST_IN       = 30;     // a ball this close...
+    private static final double INTAKE_SEE_BEARING_DEG   = 25;     // ...and this near straight ahead
+    private static final double INTAKE_KEEP_SPINNING_MS  = 1500;   // keep going after it leaves the view
+    private boolean intakeCompetitionMode = INTAKE_COMPETITION_MODE;
+    private boolean lastCompetitionToggle = false;
+    private boolean ballCameraOk = false;                          // a camera is looking for balls
+    private double intakeBallSeenMs = -1e9;                        // when a wanted ball was last seen
 
     private double largest_overshoot = 0;
     private static final double F                = 400.0;  // suggested feed speed
@@ -406,18 +415,42 @@ public class TeamBotTeleop_latest extends OpMode {
         //----------------------------------
         // AUTORUN: the intake runs IN (counterclockwise, see Intake.IN_IS_COUNTERCLOCKWISE) from
         // Play. gamepad2 Y = turn it off / on, A = on, B (hold) = spit out.
+        // COMPETITION MODE (gamepad2 D-pad UP toggles): instead of running all the time, the intake
+        // only spins while the camera sees a ball we want close in front (and a moment after,
+        // while the ball passes under the camera). Hold A to run it anyway.
         boolean yNow = gamepad2.y;
         if (yNow && !lastIntakeToggle) intakeAutoOn = !intakeAutoOn;
         lastIntakeToggle = yNow;
-        if (gamepad2.a) intakeAutoOn = true;
+        boolean dpadUpNow = gamepad2.dpad_up;
+        if (dpadUpNow && !lastCompetitionToggle) {
+            intakeCompetitionMode = !intakeCompetitionMode;
+            intakeAutoOn = true;
+        }
+        lastCompetitionToggle = dpadUpNow;
 
-        double intakePower = intakeAutoOn ? 1.0 : 0.0;   // +1 = in, -1 = out
+        boolean ballWanted = intakeBallAhead();
+        double nowMs = System.nanoTime() / 1e6;
+        if (ballWanted) intakeBallSeenMs = nowMs;
+        boolean competitionActive = intakeCompetitionMode && ballCameraOk;
+        boolean spinForBall = !competitionActive || nowMs - intakeBallSeenMs < INTAKE_KEEP_SPINNING_MS;
+
+        double intakePower = (intakeAutoOn && spinForBall) ? 1.0 : 0.0;   // +1 = in, -1 = out
+        if (gamepad2.a) {
+            intakeAutoOn = true;
+            intakePower = 1.0;                 // A: run in now, ball or not
+        }
         if (gamepad2.b) {
             intakePower = -1.0;
         }
         if (hasIntake) {
             intake.run(intakePower);
-            telemetry.addData("Intake autorun", intakeAutoOn ? "ON (gamepad2 Y = off)" : "OFF (gamepad2 Y or A = on)");
+            String how;
+            if (!intakeAutoOn)                how = "OFF (gamepad2 Y or A = on)";
+            else if (!intakeCompetitionMode)  how = "ALWAYS ON (gamepad2 D-pad UP = competition mode)";
+            else if (!ballCameraOk)           how = "COMPETITION, but no ball camera: always on";
+            else                              how = "COMPETITION: " + (ballWanted ? "ball seen - spinning"
+                    : spinForBall ? "pulling the ball in" : "waiting for a ball (A = run anyway)");
+            telemetry.addData("Intake", how);
             intake.addTelemetry();
         }
         //----------------------------------
@@ -778,6 +811,22 @@ public class TeamBotTeleop_latest extends OpMode {
                 && Math.abs(cell.bearingDeg - targetBearing) <= targetBearingTol;
     }
 
+    /**
+     * Competition mode: is there a ball we want close in front of the intake? POLLEN, or our
+     * alliance's NECTAR (AUTOPILOT_RED_ALLIANCE), within INTAKE_SEE_DIST_IN and near straight ahead.
+     */
+    private boolean intakeBallAhead() {
+        if (!ballCameraOk) return false;
+        BallDetector.BallColor opponent = AUTOPILOT_RED_ALLIANCE ? BallDetector.BallColor.BLUE : BallDetector.BallColor.RED;
+        try {
+            for (BallDetector.Ball b : ballDetector.getBalls()) {
+                if (b.color == opponent) continue;
+                if (b.distance <= INTAKE_SEE_DIST_IN && Math.abs(b.bearing) <= INTAKE_SEE_BEARING_DEG) return true;
+            }
+        } catch (Exception ignored) { }
+        return false;
+    }
+
     /** A HIVE CELL from whichever camera is in use. */
     private CellTarget cellTarget(boolean red) {
         return limelight != null ? limelight.getCellTarget(red) : aprilTagWebcam.getCellTarget(red);
@@ -791,16 +840,20 @@ public class TeamBotTeleop_latest extends OpMode {
             // Both cameras: Limelight = HIVE AprilTags only, C270 webcam = all balls
             limelightTagsOnly = true;
             ballDetector.init(hardwareMap, telemetry);
+            ballCameraOk = true;
             telemetry.addLine("Cameras: Limelight for AprilTags, Webcam 1 for balls");
         } else if (limelight != null) {
             ballDetector.useLimelight(limelight, telemetry);
+            ballCameraOk = true;
             telemetry.addLine("Using Limelight 3A");
         } else {
             // AprilTag + ball detection on the same webcam
             ballDetector.buildProcessors(telemetry);
             try {
                 aprilTagWebcam.init(hardwareMap, telemetry, ballDetector.getProcessors());
+                ballCameraOk = true;
             } catch (Exception e) {
+                ballCameraOk = false;
                 telemetry.addLine("⚠️ No camera found: no Limelight 3A and no \"Webcam 1\" in the robot"
                         + " configuration. Run LimelightTest for setup help.");
             }
@@ -886,6 +939,10 @@ public class TeamBotTeleop_latest extends OpMode {
             if (gamepad1.x)      aimColor = BallDetector.BallColor.BLUE;
             else if (gamepad1.b) aimColor = BallDetector.BallColor.RED;
             else if (gamepad1.y || gamepad1.left_bumper) aimColor = BallDetector.BallColor.YELLOW;
+            // Competition-mode intake with only a Limelight: watch for POLLEN instead of the HIVE
+            // (the shoot-ready light then needs Webcam 1 too, or competition mode off)
+            boolean watchForIntake = aimColor == null && intakeCompetitionMode && intakeAutoOn && hasIntake;
+            if (watchForIntake) aimColor = BallDetector.BallColor.YELLOW;
             limelight.setMode(aimColor == null ? LimelightVision.Mode.HIVE : LimelightVision.Mode.BALLS,
                     aimColor == null ? BallDetector.BallColor.YELLOW : aimColor);
             limelight.update();
@@ -907,6 +964,7 @@ public class TeamBotTeleop_latest extends OpMode {
     @Override
     public void start() {
         intakeAutoOn = INTAKE_AUTORUN;   // the intake starts running when Play is pressed
+        intakeCompetitionMode = INTAKE_COMPETITION_MODE;
 
         // Start flywheels on launchers (not ready to shoot)
         if (hasFlywheel) {

@@ -298,7 +298,12 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
 ### 14. **Intake** (`mechanisms/Intake.java`, test: `IntakeTest`)
 - **Motor:** goBILDA Yellow Jacket **312 RPM** (19.2:1, **537.7 ticks/rev**, ~9.2 A stall) named
   `intake`. Used by `TeamBotTeleop_latest` (**autorun**: runs IN from Play; gamepad2 Y = off/on,
-  A = on, hold B = out; `INTAKE_AUTORUN` turns autorun off), all BallSpeakerAuto-based autos,
+  A = on, hold B = out; `INTAKE_AUTORUN` turns autorun off). **Competition mode** (on at Play,
+  gamepad2 D-pad UP toggles it vs always-on; `INTAKE_COMPETITION_MODE`): the intake only spins
+  while the camera sees a POLLEN or our NECTAR within 30 in and 25° of straight ahead, plus 1.5 s
+  after it leaves the view; hold A to run it anyway. No ball camera → always on. With ONLY a
+  Limelight it watches for POLLEN, so the shoot-ready light needs Webcam 1 (or competition mode
+  off). Used by all BallSpeakerAuto-based autos,
   the path auto and `ShotSequencer` (feeding the launchers).
 - **Direction:** `run(+1)` = in, `run(-1)` = out. "In" is **counterclockwise** looking at the end
   of the motor shaft, set ONCE by `Intake.IN_IS_COUNTERCLOCKWISE` (true → motor REVERSE; a goBILDA
