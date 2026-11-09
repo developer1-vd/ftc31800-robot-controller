@@ -97,6 +97,10 @@ public class TeamBotTeleop_latest extends OpMode {
     private boolean hasBackLeft   = false;
     private boolean hasBackRight  = false;
     private boolean hasIntake     = false;
+    // Intake AUTORUN: on by default, from Play. gamepad2 Y turns it off / on.
+    private static final boolean INTAKE_AUTORUN = true;
+    private boolean intakeAutoOn = false;
+    private boolean lastIntakeToggle = false;
 
     private double largest_overshoot = 0;
     private static final double F                = 400.0;  // suggested feed speed
@@ -398,15 +402,18 @@ public class TeamBotTeleop_latest extends OpMode {
         if (hasBackRight)  backRight.setPower(brPower);
 
         //----------------------------------
-        // 2. INTAKE CONTROL (gamepad2 A/B/X)
+        // 2. INTAKE CONTROL (autorun; gamepad2 Y on/off, A on, B out)
         //----------------------------------
-        double intakePower = 0.0;      // +1 = in, -1 = out (Intake holds the speed, clears jams)
-        if (gamepad2.a) {
-            intakePower = 1.0;
-        } else if (gamepad2.b) {
+        // AUTORUN: the intake runs IN (counterclockwise, see Intake.IN_IS_COUNTERCLOCKWISE) from
+        // Play. gamepad2 Y = turn it off / on, A = on, B (hold) = spit out.
+        boolean yNow = gamepad2.y;
+        if (yNow && !lastIntakeToggle) intakeAutoOn = !intakeAutoOn;
+        lastIntakeToggle = yNow;
+        if (gamepad2.a) intakeAutoOn = true;
+
+        double intakePower = intakeAutoOn ? 1.0 : 0.0;   // +1 = in, -1 = out
+        if (gamepad2.b) {
             intakePower = -1.0;
-        } else if (gamepad2.x) {
-            intakePower = 0.0;
         }
         if (hasIntake) {
             intake.run(intakePower);
@@ -898,6 +905,8 @@ public class TeamBotTeleop_latest extends OpMode {
 
     @Override
     public void start() {
+        intakeAutoOn = INTAKE_AUTORUN;   // the intake starts running when Play is pressed
+
         // Start flywheels on launchers (not ready to shoot)
         if (hasFlywheel) {
             double targetTPS = rpmToTicksPerSec(FLYWHEEL_TARGET_RPM, FLYWHEEL_TPR);

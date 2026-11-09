@@ -292,15 +292,18 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
   skips straight to leaving. Turn off with `SHOOT_COLLECTED_BALL = false`.
 - **Safety:** if "Webcam 1" is missing, pickup is skipped instead of crashing the auto.
 - **Tuning:** speeds, gains, and timeouts are constants at the top of the class.
-  `INTAKE_IN_POWER` is 1.0 (same as gamepad2 A in teleop); flip it if the intake spits balls out.
+  `INTAKE_IN_POWER` is 1.0 (= in, counterclockwise); if balls go out, flip `Intake.IN_IS_COUNTERCLOCKWISE`.
   Assumes camera and intake face the front of the robot.
 
 ### 14. **Intake** (`mechanisms/Intake.java`, test: `IntakeTest`)
 - **Motor:** goBILDA Yellow Jacket **312 RPM** (19.2:1, **537.7 ticks/rev**, ~9.2 A stall) named
-  `intake`. Used by `TeamBotTeleop_latest` (gamepad2 A in / B out), all BallSpeakerAuto-based autos,
+  `intake`. Used by `TeamBotTeleop_latest` (**autorun**: runs IN from Play; gamepad2 Y = off/on,
+  A = on, hold B = out; `INTAKE_AUTORUN` turns autorun off), all BallSpeakerAuto-based autos,
   the path auto and `ShotSequencer` (feeding the launchers).
-- **Direction:** `run(+1)` = in, `run(-1)` = out. Which motor direction is "in" is set ONCE in
-  `Intake.INTAKE_DIRECTION` (FORWARD = the old teleop's A button). Flip it there if balls go out.
+- **Direction:** `run(+1)` = in, `run(-1)` = out. "In" is **counterclockwise** looking at the end
+  of the motor shaft, set ONCE by `Intake.IN_IS_COUNTERCLOCKWISE` (true → motor REVERSE; a goBILDA
+  motor on FORWARD turns clockwise with positive power). If IntakeTest's A spins it the wrong
+  way, flip that one setting.
 - **Drive:** plain motor power by default (`run(1)` = `setPower(1)`, the same as the old teleop), so
   it always turns. `SPEED_CONTROL = true` instead holds `IN_RPM`/`OUT_RPM` (300) with the hub's
   velocity control; without a working encoder it drops back to power by itself.
