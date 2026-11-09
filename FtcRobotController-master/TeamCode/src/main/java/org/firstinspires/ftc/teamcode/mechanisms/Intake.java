@@ -14,7 +14,7 @@ import org.firstinspires.ftc.robotcore.external.navigation.CurrentUnit;
  * 537.7 encoder ticks per output turn, ~9.2 A stall), named "intake" in the configuration.
  *
  *  - run(+1) = full speed IN, run(-1) = full speed OUT, run(0) = stop; in between = slower.
- *    "In" is set once, by INTAKE_DIRECTION, so every OpMode agrees which way is in.
+ *    "In" is set once, by IN_IS_COUNTERCLOCKWISE (counterclockwise), so every OpMode agrees.
  *  - Drive: plain motor power by default, exactly like the old teleop's intake.setPower(), so it
  *    always turns. SPEED_CONTROL = true holds IN_RPM / OUT_RPM with the hub's velocity control
  *    instead (needs this motor's encoder cable in this motor's encoder port).
@@ -33,8 +33,16 @@ public class Intake {
     public static final double TICKS_PER_REV = 537.7;
     public static final double MAX_RPM       = 312;
 
-    /** Which motor direction pulls balls IN. Flip to REVERSE if run(+1) pushes balls out. */
-    public static final DcMotorSimple.Direction INTAKE_DIRECTION = DcMotorSimple.Direction.FORWARD;
+    /**
+     * Which way the intake spins when running IN (run(+1), and the teleop's autorun), looking at
+     * the END OF THE MOTOR SHAFT: true = counterclockwise, false = clockwise.
+     * A goBILDA motor set to FORWARD turns clockwise with positive power, so counterclockwise =
+     * REVERSE. Check it with IntakeTest (A): if it spins the wrong way, flip this one setting.
+     */
+    public static final boolean IN_IS_COUNTERCLOCKWISE = true;
+
+    public static final DcMotorSimple.Direction INTAKE_DIRECTION =
+            IN_IS_COUNTERCLOCKWISE ? DcMotorSimple.Direction.REVERSE : DcMotorSimple.Direction.FORWARD;
 
     /** false = plain power (always moves, like the old code); true = hold IN_RPM with the encoder. */
     public static final boolean SPEED_CONTROL = false;
