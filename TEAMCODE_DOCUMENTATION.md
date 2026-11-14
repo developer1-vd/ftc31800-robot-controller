@@ -321,6 +321,18 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
   full power straight to the motor (skips the Intake class: if X doesn't turn it, it's wiring or
   configuration). Shows RPM, current, jams, encoder status and any problem.
 
+### 15. **FlywheelTest** (also in TEST MODE)
+- Tests the `launcher` flywheel (28 ticks/rev, velocity control, FORWARD like the teleop) and the
+  `feederServoLeft` / `feederServoRight` servos. Gamepad1 or gamepad2:
+  A = spin to the target, B = stop, D-pad UP/DOWN = ±50 RPM, D-pad LEFT/RIGHT = presets
+  (`ShotPlanner.RPM_TABLE` + 3150), LB/RB = test shot with the left/right feeder (1 s, only when at
+  speed), hold Y = full-power top-speed test, X = clear the measurements.
+- Shows target/actual RPM, spin-up time (to within 50 RPM for 5 loops), lowest/highest RPM over
+  the last second, top speed seen, current, and each test shot's RPM drop and recovery time.
+  Warns if the encoder isn't counting or the wheel reads backwards.
+- Use it to fill in `ShotPlanner.RPM_TABLE`: shoot from each distance, adjust with the D-pad until
+  balls go in, and write the RPM down.
+
 ### 13. **The auto's "brain"** (`BallSpeakerAuto` SMART_ flags, `BallChooser`, `ShotPlanner`)
 Used by every BallSpeakerAuto-based mode (BIOBUZZ autos, simple autos, practice autos, the teleop
 autopilot). Telemetry shows the current decision as **Brain: ...**. Each part can be turned off:

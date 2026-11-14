@@ -59,6 +59,7 @@ All robot code that gets built is under `FtcRobotController-master/TeamCode/src/
 | `BallDetectionTest` | TeleOp | Ball detection telemetry and tuning |
 | `TeamBotTeleop_Phone (practice)` | TeleOp | Same as `TeamBotTeleop_latest`, plus phone touchscreen controls. **Practice only** |
 | `LimelightTest` | TeleOp | Limelight 3A connection and pipeline check |
+| `FlywheelTest` | TeleOp | Flywheel (`launcher`) test: A spin / B stop, D-pad = RPM and presets, LB/RB = test shot with the left/right feeder, hold Y = top-speed test. Shows spin-up time, steadiness, and each shot's RPM drop and recovery time |
 
 - `mechanisms/BallDetector.java` — POLLEN / NECTAR detection, distance and bearing; spots robots by their alliance-color signs
 - `mechanisms/AprilTagWebcam.java` — HIVE CELL AprilTag clusters (SDK 12)
