@@ -50,6 +50,21 @@ public class TeamBotTeleop_latest extends OpMode {
     private static final boolean LOOK_AROUND_WHEN_AIMING = true;
     private final LookAroundScanner ballScanner = new LookAroundScanner();
 
+    // HIVE AUTO-ORIENT: the camera (Limelight, or Webcam 1) turns the robot so our HIVE CELL is
+    // centered (at targetBearing, the shoot window's aim). The driver keeps driving with the left
+    // stick; moving the right stick (turning) always wins.
+    //   gamepad1 RIGHT BUMPER (hold) = turn to the HIVE now
+    //   gamepad1 RIGHT STICK click   = HIVE LOCK on/off: keep facing the HIVE all the time
+    private static final double HIVE_TURN_GAIN     = 0.02;   // turn power per degree off
+    private static final double HIVE_MAX_TURN      = 0.4;
+    private static final double HIVE_MIN_TURN      = 0.07;   // enough to actually move the robot
+    private static final double HIVE_AIM_TOLERANCE = 2.0;    // degrees
+    private static final boolean HIVE_LOOK_AROUND  = true;   // HIVE not in view: turn to look for it
+    private boolean hiveLock = false;
+    private boolean lastHiveLockToggle = false;
+    private double hiveLastBearing = 0;                       // where we last saw it (+ = left)
+    private final LookAroundScanner hiveScanner = new LookAroundScanner();
+
     // Autopilot (gamepad1 START). Which HIVE it shoots into: set to your alliance!
     private static final boolean AUTOPILOT_RED_ALLIANCE = true;
     private BallSpeakerAuto autopilot = null;
@@ -393,6 +408,46 @@ public class TeamBotTeleop_latest extends OpMode {
         } else {
             ballScanner.reset();
         }
+
+        //----------------------------------
+        // 1C. HIVE AUTO-ORIENT (gamepad1 RB hold, or HIVE LOCK via right stick click)
+        //----------------------------------
+        boolean lockClick = gamepad1.right_stick_button;
+        if (lockClick && !lastHiveLockToggle) {
+            hiveLock = !hiveLock;
+            telemetry.speak(hiveLock ? "hive lock on" : "hive lock off");
+        }
+        lastHiveLockToggle = lockClick;
+        boolean driverTurning = Math.abs(gamepad1.right_stick_x) > 0.1;
+        boolean hiveAiming = (gamepad1.right_bumper || hiveLock) && !ballAiming && !driverTurning;
+        CellTarget ourCell = AUTOPILOT_RED_ALLIANCE ? redCell : blueCell;
+        String hiveStatus;
+        if (!hiveAiming) {
+            hiveScanner.reset();
+            hiveStatus = hiveLock ? "LOCK on (paused: you're turning or aiming at a ball)"
+                    : "off (hold RB, or click the right stick for HIVE LOCK)";
+        } else if (ourCell != null) {
+            hiveScanner.reset();
+            hiveLastBearing = ourCell.bearingDeg;
+            double error = ourCell.bearingDeg - targetBearing;      // + = HIVE is to the LEFT
+            if (Math.abs(error) > HIVE_AIM_TOLERANCE) {
+                double turn = Range.clip(error * HIVE_TURN_GAIN, -HIVE_MAX_TURN, HIVE_MAX_TURN);
+                if (Math.abs(turn) < HIVE_MIN_TURN) turn = Math.signum(turn) * HIVE_MIN_TURN;
+                rx = -turn;                                         // rx + = turn RIGHT
+                hiveStatus = String.format("turning to the HIVE: %.1f deg off", error);
+            } else {
+                rx = 0;
+                hiveStatus = "FACING THE HIVE";
+            }
+        } else if (gamepad1.right_bumper && HIVE_LOOK_AROUND) {
+            // Not in view: turn to look, starting toward where it was last seen
+            if (!hiveScanner.isTurning() && hiveScanner.searchMs() == 0) hiveScanner.searchToward(hiveLastBearing);
+            rx = hiveScanner.turnPower();
+            hiveStatus = "looking for our HIVE CELL...";
+        } else {
+            hiveStatus = "LOCK on, HIVE not in view (hold RB to look for it)";
+        }
+        telemetry.addData("HIVE orient", hiveStatus);
 
         double flPower = y + x + rx;
         double blPower = y - x + rx;
@@ -941,7 +996,9 @@ public class TeamBotTeleop_latest extends OpMode {
             else if (gamepad1.y || gamepad1.left_bumper) aimColor = BallDetector.BallColor.YELLOW;
             // Competition-mode intake with only a Limelight: watch for POLLEN instead of the HIVE
             // (the shoot-ready light then needs Webcam 1 too, or competition mode off)
-            boolean watchForIntake = aimColor == null && intakeCompetitionMode && intakeAutoOn && hasIntake;
+            boolean orientingToHive = gamepad1.right_bumper || hiveLock;
+            boolean watchForIntake = aimColor == null && !orientingToHive
+                    && intakeCompetitionMode && intakeAutoOn && hasIntake;
             if (watchForIntake) aimColor = BallDetector.BallColor.YELLOW;
             limelight.setMode(aimColor == null ? LimelightVision.Mode.HIVE : LimelightVision.Mode.BALLS,
                     aimColor == null ? BallDetector.BallColor.YELLOW : aimColor);

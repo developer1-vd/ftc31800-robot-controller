@@ -54,7 +54,7 @@ All robot code that gets built is under `FtcRobotController-master/TeamCode/src/
 | **BIOBUZZ Path Auto RED / BLUE** | Auto | Pedro path auto: shoot → collect sweep → shoot → park, with camera fine-aim. **Set the field poses first** (until then it only drives forward for LEAVE) |
 | **Practice Auto (endless)** | Auto | Collects and shoots with no time limit (turn off the Driver Station's 30 s timer) |
 | **BIOBUZZ Auto RED** / **BIOBUZZ Auto BLUE** | Auto | Competition autos: leave the wall, LAUNCH the 4 preloads into our HIVE CELL, collect and LAUNCH more POLLEN, finish off the wall (or PARK) |
-| `TeamBotTeleop_latest` | TeleOp | Main driver control; HIVE CELL shoot-ready light; ball auto-aim (gamepad1 LB / X / B / Y); **AUTOPILOT: gamepad1 START** = the robot collects, aims and shoots by itself until START or a stick is moved |
+| `TeamBotTeleop_latest` | TeleOp | Main driver control; HIVE CELL shoot-ready light; ball auto-aim (gamepad1 LB / X / B / Y); **HIVE auto-orient: hold gamepad1 RB** (or click the right stick for HIVE LOCK) and the camera turns the robot to face our HIVE CELL while you drive; **AUTOPILOT: gamepad1 START** = the robot collects, aims and shoots by itself until START or a stick is moved |
 | `BallSpeakerAuto` | Auto | Practice version of the BIOBUZZ auto (no preloads); works with just a camera too |
 | `BallDetectionTest` | TeleOp | Ball detection telemetry and tuning |
 | `TeamBotTeleop_Phone (practice)` | TeleOp | Same as `TeamBotTeleop_latest`, plus phone touchscreen controls. **Practice only** |
