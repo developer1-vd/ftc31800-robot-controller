@@ -131,6 +131,11 @@ public class BallSpeakerAuto extends OpMode {
     // HIVE auto-orient (same as the teleop's RB): keep facing our HIVE CELL while shooting too
     private static final boolean HOLD_HIVE_AIM_WHILE_SHOOTING = true;
     private static final double  HIVE_MIN_TURN = 0.07;   // smallest turn that actually moves the robot
+    // ...and while DRIVING (leaving the wall, driving back to the start / park spot): when the
+    // camera sees our HIVE CELL, the robot turns to face it while it strafes along its route
+    // (mecanum), so it's already lined up for the next shot. Not while chasing balls: the camera
+    // and intake must face the ball then.
+    private static final boolean ORIENT_TO_HIVE_WHILE_DRIVING = true;
     private static final double SHOOT_RPM             = 2400;   // teleop default / RT preset
     private static final double SHOOT_ARM_POSITION    = 0.5;    // same arm position the autos use
     private static final double GOAL_SEARCH_MS        = 6000;   // give up finding the goal after this
@@ -448,6 +453,13 @@ public class BallSpeakerAuto extends OpMode {
             setDrivePower(0, 0, 0);
             setState(afterStartState());
             return "off the wall";
+        }
+        double hiveTurn = hiveFacingTurn();
+        if (odometry != null && !Double.isNaN(hiveTurn)) {
+            // Keep driving straight out from the wall (start frame) while turning to the HIVE
+            double h = Math.toRadians(odometry.getHeadingDeg());
+            setDrivePower(LEAVE_WALL_POWER * Math.cos(h), LEAVE_WALL_POWER * Math.sin(h), hiveTurn);
+            return "leaving the wall, turning to the HIVE";
         }
         setDrivePower(LEAVE_WALL_POWER, 0, 0);
         return "leaving the wall";
@@ -893,6 +905,18 @@ public class BallSpeakerAuto extends OpMode {
         return turn;
     }
 
+    /**
+     * While driving: turn power (+ = RIGHT) that keeps us facing our HIVE CELL, 0 if already
+     * facing it, or NaN if the HIVE isn't in view (or this is turned off).
+     */
+    private double hiveFacingTurn() {
+        if (!ORIENT_TO_HIVE_WHILE_DRIVING) return Double.NaN;
+        CellTarget tag = getGoalTag();
+        if (tag == null) return Double.NaN;
+        double error = tag.bearingDeg - SHOOT_BEARING_DEG;   // + = HIVE is LEFT
+        return Math.abs(error) > SHOOT_BEARING_TOL_DEG ? hiveTurn(error) : 0;
+    }
+
     private void finishShooting() {
         setIntake(0);
         stopLaunchers();         // flywheel off until the next round
@@ -930,6 +954,10 @@ public class BallSpeakerAuto extends OpMode {
         double heading = odometry.getHeadingDeg();
         double distance = Math.hypot(target[0] - x, target[1] - y);
         double headingError = AngleUnit.normalizeDegrees(target[2] - heading);   // + = need to turn LEFT
+        // Face the HIVE on the way (if we can see it) instead of the start heading
+        double hiveTurn = hiveFacingTurn();
+        boolean facingHive = !Double.isNaN(hiveTurn);
+        if (facingHive) headingError = 0;
 
         if ((distance <= HOME_POSITION_TOL_IN && Math.abs(headingError) <= HOME_HEADING_TOL_DEG)
                 || stateTimer.milliseconds() > HOME_TIMEOUT_MS) {
@@ -953,10 +981,12 @@ public class BallSpeakerAuto extends OpMode {
             forward     = speed * forwardErr / distance;
             strafeRight = speed * -leftErr / distance;
         }
-        double turn = Math.abs(headingError) > HOME_HEADING_TOL_DEG
+        double turn = facingHive ? hiveTurn
+                : Math.abs(headingError) > HOME_HEADING_TOL_DEG
                 ? Range.clip(-headingError * HOME_TURN_GAIN, -MAX_TURN, MAX_TURN)   // + turn = right
                 : 0;
         setDrivePower(forward, strafeRight, turn);
+        if (facingHive) return String.format("returning to start: %.0f in, facing the HIVE", distance);
         return String.format("returning to start: %.0f in, %.0f deg away", distance, headingError);
     }
 
