@@ -330,6 +330,12 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
   always takes over. Telemetry: **HIVE orient: ...**.
 - Tuning: `HIVE_TURN_GAIN` 0.02 power/deg, `HIVE_MAX_TURN` 0.4, `HIVE_MIN_TURN` 0.07,
   `HIVE_AIM_TOLERANCE` 2°. With only a Limelight, it stays on the AprilTag pipeline while orienting.
+- **Autos too:** the BallSpeakerAuto-based autos (BIOBUZZ Auto / Simple Auto / Practice / autopilot)
+  turn to our HIVE CELL in LINE_UP and now also **hold that aim during the whole volley**
+  (`HOLD_HIVE_AIM_WHILE_SHOOTING`), with a minimum turn power (`HIVE_MIN_TURN` 0.07) so they don't
+  stall a few degrees off. The Path Auto aims the same way (`HOLD_AIM_WHILE_SHOOTING`) and, if
+  the HIVE isn't in view, turns to look for it starting toward the field center (`AIM_LOOK_AROUND`,
+  `AIM_TIMEOUT_MS` 2.5 s, then it shoots from the path heading).
 
 ### 15. **FlywheelTest** (also in TEST MODE)
 - Tests the `launcher` flywheel (28 ticks/rev, velocity control, FORWARD like the teleop) and the

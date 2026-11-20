@@ -13,6 +13,7 @@ import org.firstinspires.ftc.teamcode.mechanisms.CellTarget;
 import org.firstinspires.ftc.teamcode.mechanisms.FeederLauncher;
 import org.firstinspires.ftc.teamcode.mechanisms.Intake;
 import org.firstinspires.ftc.teamcode.mechanisms.LimelightVision;
+import org.firstinspires.ftc.teamcode.mechanisms.LookAroundScanner;
 import org.firstinspires.ftc.teamcode.mechanisms.ShotPlanner;
 import org.firstinspires.ftc.teamcode.mechanisms.ShotSequencer;
 
@@ -58,7 +59,10 @@ public abstract class BiobuzzPathAuto extends OpMode {
     private static final double AIM_TOL_DEG      = 2.0;
     private static final double AIM_GAIN         = 0.02;    // turn power per degree
     private static final double AIM_MAX_TURN     = 0.35;
-    private static final double AIM_TIMEOUT_MS   = 1500;    // give up aiming and shoot anyway
+    private static final double AIM_MIN_TURN     = 0.07;    // smallest turn that actually moves the robot
+    private static final double AIM_TIMEOUT_MS   = 2500;    // give up aiming and shoot anyway
+    private static final boolean AIM_LOOK_AROUND = true;    // HIVE not in view: turn to look for it
+    private static final boolean HOLD_AIM_WHILE_SHOOTING = true;   // keep facing the HIVE during the volley
 
     private enum State { DRIVE_TO_SHOOT, AIM, SHOOT, DRIVE_TO_COLLECT, COLLECT, DRIVE_TO_PARK, LEAVE_ONLY, DONE }
 
@@ -75,6 +79,7 @@ public abstract class BiobuzzPathAuto extends OpMode {
     private LimelightVision limelight;
     private final AprilTagWebcam webcam = new AprilTagWebcam();
     private boolean webcamOk = false;
+    private final LookAroundScanner hiveScanner = new LookAroundScanner();
     private String problem = "";
 
     @Override
@@ -155,6 +160,7 @@ public abstract class BiobuzzPathAuto extends OpMode {
                 break;
 
             case SHOOT:
+                if (HOLD_AIM_WHILE_SHOOTING) holdAim();
                 status = shots.update();
                 if (shots.isDone() || stateTimer.milliseconds() > SHOOT_TIMEOUT_MS) {
                     shots.stop();
@@ -221,13 +227,38 @@ public abstract class BiobuzzPathAuto extends OpMode {
 
     private void startAim() {
         follower.startTeleopDrive();   // turn in place under our control
+        hiveScanner.reset();
+        // The HIVE is in the field center (72, 72): look toward it first if it isn't in view
+        Pose p = follower.getPose();
+        double toCenter = Math.toDegrees(Math.atan2(72 - p.getY(), 72 - p.getX()));
+        double err = ((toCenter - Math.toDegrees(p.getHeading())) % 360 + 540) % 360 - 180;   // + = LEFT
+        hiveScanner.searchToward(err);
         setState(State.AIM);
+    }
+
+    /** Our HIVE CELL from whichever camera is in use, or null. */
+    private CellTarget ourCell() {
+        return limelight != null ? limelight.getCellTarget(redAlliance())
+                : webcamOk ? webcam.getCellTarget(redAlliance()) : null;
+    }
+
+    /** Pedro turn power (+ = LEFT) toward the HIVE, from how far it's off (+ = LEFT); 0 when aimed. */
+    private static double aimTurn(double error) {
+        if (Math.abs(error) <= AIM_TOL_DEG) return 0;
+        double turn = Range.clip(error * AIM_GAIN, -AIM_MAX_TURN, AIM_MAX_TURN);
+        return Math.abs(turn) < AIM_MIN_TURN ? Math.signum(turn) * AIM_MIN_TURN : turn;
+    }
+
+    /** During the volley: keep turning to face the HIVE if we can see it. */
+    private void holdAim() {
+        CellTarget cell = ourCell();
+        double turn = cell == null ? 0 : aimTurn(cell.bearingDeg - AIM_BEARING_DEG);
+        follower.setTeleOpDrive(0, 0, turn, true);
     }
 
     /** Turn in place until our HIVE CELL is centered (camera), then shoot. */
     private String aim() {
-        CellTarget cell = limelight != null ? limelight.getCellTarget(redAlliance())
-                : webcamOk ? webcam.getCellTarget(redAlliance()) : null;
+        CellTarget cell = ourCell();
         double error = cell == null ? 0 : cell.bearingDeg - AIM_BEARING_DEG;   // + = HIVE is LEFT
         boolean aimed = cell != null && Math.abs(error) <= AIM_TOL_DEG;
         if (aimed || stateTimer.milliseconds() > AIM_TIMEOUT_MS) {
@@ -239,7 +270,14 @@ public abstract class BiobuzzPathAuto extends OpMode {
             return aimed ? "aimed at the HIVE" : "aim timeout - shooting from the path heading";
         }
         // Pedro teleop drive: turn > 0 = turn LEFT
-        double turn = cell == null ? 0 : Range.clip(error * AIM_GAIN, -AIM_MAX_TURN, AIM_MAX_TURN);
+        double turn;
+        if (cell != null) {
+            hiveScanner.reset();
+            turn = aimTurn(error);
+        } else {
+            // Not in view: turn to look (scanner: + = RIGHT, so flip it for Pedro)
+            turn = AIM_LOOK_AROUND ? -hiveScanner.turnPower() : 0;
+        }
         follower.setTeleOpDrive(0, 0, turn, true);
         return cell == null ? "looking for the HIVE" : String.format("aiming: %.1f deg off", error);
     }
