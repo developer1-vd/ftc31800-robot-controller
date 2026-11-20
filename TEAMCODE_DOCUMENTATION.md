@@ -336,6 +336,12 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
   stall a few degrees off. The Path Auto aims the same way (`HOLD_AIM_WHILE_SHOOTING`) and, if
   the HIVE isn't in view, turns to look for it starting toward the field center (`AIM_LOOK_AROUND`,
   `AIM_TIMEOUT_MS` 2.5 s, then it shoots from the path heading).
+- **While driving in auto:** `ORIENT_TO_HIVE_WHILE_DRIVING` (BallSpeakerAuto): while leaving the
+  wall (with Pinpoint: it keeps driving straight out from the wall while turning) and while driving
+  back to the start / park spot, it turns to face our HIVE CELL whenever the camera sees it,
+  strafing along its route (mecanum). Not while chasing balls (camera + intake must face the ball).
+  `FACE_HIVE_WHILE_DRIVING` (Path Auto): the paths to the shooting spot use Pedro's
+  `HeadingInterpolator.facingPoint(HIVE_X, HIVE_Y)` (72, 72 = field center), so it arrives aimed.
 
 ### 15. **FlywheelTest** (also in TEST MODE)
 - Tests the `launcher` flywheel (28 ticks/rev, velocity control, FORWARD like the teleop) and the

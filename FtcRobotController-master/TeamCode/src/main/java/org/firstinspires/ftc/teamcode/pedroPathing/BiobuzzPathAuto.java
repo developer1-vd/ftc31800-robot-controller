@@ -3,6 +3,7 @@ package org.firstinspires.ftc.teamcode.pedroPathing;
 import com.pedropathing.follower.Follower;
 import com.pedropathing.geometry.BezierLine;
 import com.pedropathing.geometry.Pose;
+import com.pedropathing.paths.HeadingInterpolator;
 import com.pedropathing.paths.Path;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.util.ElapsedTime;
@@ -63,6 +64,10 @@ public abstract class BiobuzzPathAuto extends OpMode {
     private static final double AIM_TIMEOUT_MS   = 2500;    // give up aiming and shoot anyway
     private static final boolean AIM_LOOK_AROUND = true;    // HIVE not in view: turn to look for it
     private static final boolean HOLD_AIM_WHILE_SHOOTING = true;   // keep facing the HIVE during the volley
+    // Face the HIVE the whole way while driving to the shooting spot (Pedro "facing point"),
+    // so the robot arrives already aimed. HIVE = field center in Pedro coordinates.
+    private static final boolean FACE_HIVE_WHILE_DRIVING = true;
+    private static final double HIVE_X = 72, HIVE_Y = 72;
 
     private enum State { DRIVE_TO_SHOOT, AIM, SHOOT, DRIVE_TO_COLLECT, COLLECT, DRIVE_TO_PARK, LEAVE_ONLY, DONE }
 
@@ -126,7 +131,7 @@ public abstract class BiobuzzPathAuto extends OpMode {
             follower.followPath(line(s, ahead), true);
             setState(State.LEAVE_ONLY);
         } else {
-            follower.followPath(line(startPose(), shootPose()), true);
+            follower.followPath(toShoot(startPose()), true);
             left.launch(0, 0, false, false);      // start the flywheel early (like the other autos)
             right.launch(0, 0, false, false);
             setState(State.DRIVE_TO_SHOOT);
@@ -190,7 +195,7 @@ public abstract class BiobuzzPathAuto extends OpMode {
                 if (!follower.isBusy()) {
                     setIntake(0);
                     follower.setMaxPower(1.0);
-                    follower.followPath(line(collectEndPose(), shootPose()), true);
+                    follower.followPath(toShoot(collectEndPose()), true);
                     setState(State.DRIVE_TO_SHOOT);
                 }
                 break;
@@ -288,6 +293,13 @@ public abstract class BiobuzzPathAuto extends OpMode {
         follower.setMaxPower(1.0);
         follower.followPath(line(follower.getPose(), parkPose()), true);
         setState(State.DRIVE_TO_PARK);
+    }
+
+    /** Path to the shooting spot: facing the HIVE all the way, or the planned headings. */
+    private Path toShoot(Pose from) {
+        Path path = line(from, shootPose());
+        if (FACE_HIVE_WHILE_DRIVING) path.setHeadingInterpolation(HeadingInterpolator.facingPoint(HIVE_X, HIVE_Y));
+        return path;
     }
 
     private static Path line(Pose from, Pose to) {
