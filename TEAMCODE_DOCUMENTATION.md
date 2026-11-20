@@ -321,6 +321,16 @@ Advanced autonomous implementations using Pedro Pathing library for precise path
   full power straight to the motor (skips the Intake class: if X doesn't turn it, it's wiring or
   configuration). Shows RPM, current, jams, encoder status and any problem.
 
+### 16. **HIVE auto-orient** (`TeamBotTeleop_latest`)
+- **Hold gamepad1 RB:** the camera (Limelight, or Webcam 1) turns the robot until OUR HIVE CELL
+  (`AUTOPILOT_RED_ALLIANCE`) is at `targetBearing` (-3°, the shoot window's aim) within 2°. Not
+  in view → it turns to look, starting toward where it was last seen.
+- **Click the right stick:** HIVE LOCK on/off (spoken): keeps facing the HIVE whenever it's in view.
+- The left stick still drives and strafes. Moving the right stick (turning) or a ball-aim button
+  always takes over. Telemetry: **HIVE orient: ...**.
+- Tuning: `HIVE_TURN_GAIN` 0.02 power/deg, `HIVE_MAX_TURN` 0.4, `HIVE_MIN_TURN` 0.07,
+  `HIVE_AIM_TOLERANCE` 2°. With only a Limelight, it stays on the AprilTag pipeline while orienting.
+
 ### 15. **FlywheelTest** (also in TEST MODE)
 - Tests the `launcher` flywheel (28 ticks/rev, velocity control, FORWARD like the teleop) and the
   `feederServoLeft` / `feederServoRight` servos. Gamepad1 or gamepad2:
