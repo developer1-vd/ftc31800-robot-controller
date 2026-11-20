@@ -128,6 +128,9 @@ public class BallSpeakerAuto extends OpMode {
     private static final double SHOOT_RANGE_TOL_IN    = 6.0;
     private static final double SHOOT_BEARING_DEG     = -3.0;
     private static final double SHOOT_BEARING_TOL_DEG = 3.0;
+    // HIVE auto-orient (same as the teleop's RB): keep facing our HIVE CELL while shooting too
+    private static final boolean HOLD_HIVE_AIM_WHILE_SHOOTING = true;
+    private static final double  HIVE_MIN_TURN = 0.07;   // smallest turn that actually moves the robot
     private static final double SHOOT_RPM             = 2400;   // teleop default / RT preset
     private static final double SHOOT_ARM_POSITION    = 0.5;    // same arm position the autos use
     private static final double GOAL_SEARCH_MS        = 6000;   // give up finding the goal after this
@@ -838,7 +841,7 @@ public class BallSpeakerAuto extends OpMode {
         }
         steady = false;
 
-        double turn = aimed ? 0 : Range.clip(-bearingError * TURN_GAIN, -MAX_TURN, MAX_TURN);
+        double turn = aimed ? 0 : hiveTurn(bearingError);
         double forward = 0;
         if (!inRange && Math.abs(bearingError) <= DRIVE_MAX_BEARING) {
             forward = Math.signum(rangeError)
@@ -869,12 +872,25 @@ public class BallSpeakerAuto extends OpMode {
 
     /** Feed and fire left/right pairs (ShotSequencer), with a safety timeout. */
     private String shoot() {
-        setDrivePower(0, 0);
+        // Hold the aim on our HIVE CELL during the volley (bumped, or drifting after a shot)
+        CellTarget tag = HOLD_HIVE_AIM_WHILE_SHOOTING ? getGoalTag() : null;
+        double error = tag == null ? 0 : tag.bearingDeg - SHOOT_BEARING_DEG;   // + = HIVE is LEFT
+        setDrivePower(0, Math.abs(error) > SHOOT_BEARING_TOL_DEG ? hiveTurn(error) : 0);
         if (shots.isDone() || stateTimer.milliseconds() > SHOOT_TIMEOUT_MS) {
             finishShooting();
             return "done shooting";
         }
         return shots.update();
+    }
+
+    /**
+     * Turn power (+ = RIGHT) that turns toward the HIVE, from how far it is off center
+     * (+ = it's to the LEFT). Never so small that the robot doesn't move.
+     */
+    private double hiveTurn(double bearingErrorDeg) {
+        double turn = Range.clip(-bearingErrorDeg * TURN_GAIN, -MAX_TURN, MAX_TURN);
+        if (turn != 0 && Math.abs(turn) < HIVE_MIN_TURN) turn = Math.signum(turn) * HIVE_MIN_TURN;
+        return turn;
     }
 
     private void finishShooting() {
