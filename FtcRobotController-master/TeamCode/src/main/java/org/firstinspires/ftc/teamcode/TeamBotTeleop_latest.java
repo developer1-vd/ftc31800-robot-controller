@@ -55,11 +55,15 @@ public class TeamBotTeleop_latest extends OpMode {
     // stick; moving the right stick (turning) always wins.
     //   gamepad1 RIGHT BUMPER (hold) = turn to the HIVE now
     //   gamepad1 RIGHT STICK click   = HIVE LOCK on/off: keep facing the HIVE all the time
+    //                                  (ON from Play: HIVE_LOCK_AT_START)
     private static final double HIVE_TURN_GAIN     = 0.02;   // turn power per degree off
     private static final double HIVE_MAX_TURN      = 0.4;
     private static final double HIVE_MIN_TURN      = 0.07;   // enough to actually move the robot
     private static final double HIVE_AIM_TOLERANCE = 2.0;    // degrees
     private static final boolean HIVE_LOOK_AROUND  = true;   // HIVE not in view: turn to look for it
+    // HIVE LOCK is ON from Play: while you drive, the robot keeps turning to face our HIVE CELL
+    // whenever the camera sees it. Click the right stick to turn it off / on.
+    private static final boolean HIVE_LOCK_AT_START = true;
     private boolean hiveLock = false;
     private boolean lastHiveLockToggle = false;
     private double hiveLastBearing = 0;                       // where we last saw it (+ = left)
@@ -425,7 +429,7 @@ public class TeamBotTeleop_latest extends OpMode {
         if (!hiveAiming) {
             hiveScanner.reset();
             hiveStatus = hiveLock ? "LOCK on (paused: you're turning or aiming at a ball)"
-                    : "off (hold RB, or click the right stick for HIVE LOCK)";
+                    : "LOCK off (click the right stick to turn it on, or hold RB)";
         } else if (ourCell != null) {
             hiveScanner.reset();
             hiveLastBearing = ourCell.bearingDeg;
@@ -1021,6 +1025,7 @@ public class TeamBotTeleop_latest extends OpMode {
     @Override
     public void start() {
         intakeAutoOn = INTAKE_AUTORUN;   // the intake starts running when Play is pressed
+        hiveLock = HIVE_LOCK_AT_START;   // face the HIVE while driving, from Play
         intakeCompetitionMode = INTAKE_COMPETITION_MODE;
 
         // Start flywheels on launchers (not ready to shoot)
