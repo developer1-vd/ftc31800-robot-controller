@@ -8,10 +8,15 @@ import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
 
 import com.qualcomm.robotcore.hardware.Servo;
+import com.qualcomm.robotcore.util.Range;
 import org.firstinspires.ftc.teamcode.mechanisms.RPM_per_dist;
 import org.firstinspires.ftc.teamcode.mechanisms.AprilTagWebcam;
+import org.firstinspires.ftc.teamcode.mechanisms.BallDetector;
+import org.firstinspires.ftc.teamcode.mechanisms.CellTarget;
+import org.firstinspires.ftc.teamcode.mechanisms.Intake;
+import org.firstinspires.ftc.teamcode.mechanisms.LimelightVision;
+import org.firstinspires.ftc.teamcode.mechanisms.LookAroundScanner;
 import org.firstinspires.ftc.teamcode.mechanisms.RGBIndicatorLight;
-import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
 
 @TeleOp(name="TeamBotTeleop_latest", group="Drive")
 public class TeamBotTeleop_latest extends OpMode {
@@ -20,9 +25,55 @@ public class TeamBotTeleop_latest extends OpMode {
     // AprilTag + RGB (single instance)
     // -----------------------------
     private final AprilTagWebcam aprilTagWebcam = new AprilTagWebcam();
+    // Limelight 3A named "limelight" in the robot configuration; used instead of the webcam
+    private LimelightVision limelight = null;
+    // With both cameras: the Limelight only watches AprilTags, the webcam finds the balls
+    private boolean limelightTagsOnly = false;
     private final RGBIndicatorLight light = new RGBIndicatorLight();
 
     private final RPM_per_dist distToRPM = new RPM_per_dist();
+
+    // Ball detection (shares "Webcam 1" with AprilTags)
+    private final BallDetector ballDetector = new BallDetector();
+
+    // Ball auto-aim: proportional turn gain (power per degree), limits
+    private static final double BALL_TURN_GAIN     = 0.02;
+    private static final double BALL_MAX_AUTO_TURN = 0.4;
+    private static final double BALL_AIM_TOLERANCE = 2.0;  // degrees
+
+    // Spoken ball announcements on the Driver Station. Set to false to start silent;
+    // gamepad1 BACK toggles it during the match.
+    private static final boolean SOUND_ENABLED = true;
+    private boolean lastSoundToggle = false;
+
+    // Turn to look: holding an aim button with no matching ball in view turns the robot in steps
+    private static final boolean LOOK_AROUND_WHEN_AIMING = true;
+    private final LookAroundScanner ballScanner = new LookAroundScanner();
+
+    // HIVE AUTO-ORIENT: the camera (Limelight, or Webcam 1) turns the robot so our HIVE CELL is
+    // centered (at targetBearing, the shoot window's aim). The driver keeps driving with the left
+    // stick; moving the right stick (turning) always wins.
+    //   gamepad1 RIGHT BUMPER (hold) = turn to the HIVE now
+    //   gamepad1 RIGHT STICK click   = HIVE LOCK on/off: keep facing the HIVE all the time
+    //                                  (ON from Play: HIVE_LOCK_AT_START)
+    private static final double HIVE_TURN_GAIN     = 0.02;   // turn power per degree off
+    private static final double HIVE_MAX_TURN      = 0.4;
+    private static final double HIVE_MIN_TURN      = 0.07;   // enough to actually move the robot
+    private static final double HIVE_AIM_TOLERANCE = 2.0;    // degrees
+    private static final boolean HIVE_LOOK_AROUND  = true;   // HIVE not in view: turn to look for it
+    // HIVE LOCK is ON from Play: while you drive, the robot keeps turning to face our HIVE CELL
+    // whenever the camera sees it. Click the right stick to turn it off / on.
+    private static final boolean HIVE_LOCK_AT_START = true;
+    private boolean hiveLock = false;
+    private boolean lastHiveLockToggle = false;
+    private double hiveLastBearing = 0;                       // where we last saw it (+ = left)
+    private final LookAroundScanner hiveScanner = new LookAroundScanner();
+
+    // Autopilot (gamepad1 START). Which HIVE it shoots into: set to your alliance!
+    private static final boolean AUTOPILOT_RED_ALLIANCE = true;
+    private BallSpeakerAuto autopilot = null;
+    private boolean lastStartButton = false;
+    private String autopilotMessage = "";
 
     // Debounce for shoot-ready indicator
     private int shootInRangeCount = 0;
@@ -35,7 +86,8 @@ public class TeamBotTeleop_latest extends OpMode {
     private DcMotor backRight  = null;
 
     // Intake (312 rpm goBILDA)
-    private DcMotor intake = null;
+    // goBILDA Yellow Jacket 312 RPM: speed control + jam clearing (see Intake)
+    private final Intake intake = new Intake();
 
     // Flywheel (high-speed shooter)
     private DcMotorEx flywheel = null;
@@ -64,6 +116,19 @@ public class TeamBotTeleop_latest extends OpMode {
     private boolean hasBackLeft   = false;
     private boolean hasBackRight  = false;
     private boolean hasIntake     = false;
+    // Intake AUTORUN: on by default, from Play. gamepad2 Y turns it off / on.
+    private static final boolean INTAKE_AUTORUN = true;
+    private boolean intakeAutoOn = false;
+    private boolean lastIntakeToggle = false;
+    // Intake COMPETITION MODE: only spin when the camera sees a ball to pick up (gamepad2 D-pad UP).
+    private static final boolean INTAKE_COMPETITION_MODE = true;   // on at Play
+    private static final double INTAKE_SEE_DIST_IN       = 30;     // a ball this close...
+    private static final double INTAKE_SEE_BEARING_DEG   = 25;     // ...and this near straight ahead
+    private static final double INTAKE_KEEP_SPINNING_MS  = 1500;   // keep going after it leaves the view
+    private boolean intakeCompetitionMode = INTAKE_COMPETITION_MODE;
+    private boolean lastCompetitionToggle = false;
+    private boolean ballCameraOk = false;                          // a camera is looking for balls
+    private double intakeBallSeenMs = -1e9;                        // when a wanted ball was last seen
 
     private double largest_overshoot = 0;
     private static final double F                = 400.0;  // suggested feed speed
@@ -86,6 +151,8 @@ public class TeamBotTeleop_latest extends OpMode {
 
     private static final int IN_TOLERANCE_REQUIRED = 1;
 
+    // Shoot window from last season (DECODE goal). The BIOBUZZ CELL is ~44 in up in the
+    // middle of the field, and range is measured to the CELL opening: RE-TUNE these.
     private static final double targetDist = 36;
     private static final double targetDistTol = 6;
 
@@ -138,7 +205,6 @@ public class TeamBotTeleop_latest extends OpMode {
         frontRight = getMotor("right_front_drive");
         backLeft   = getMotor("left_back_drive");
         backRight  = getMotor("right_back_drive");
-        intake     = getMotor("intake");
         flywheel   = getMotorEx("launcher"); // needs DcMotorEx for velocity
 
 //        flywheel   = flywheeltuner.init(telemetry, hardwareMap, gamepad1);
@@ -147,7 +213,7 @@ public class TeamBotTeleop_latest extends OpMode {
         hasFrontRight = (frontRight != null);
         hasBackLeft   = (backLeft   != null);
         hasBackRight  = (backRight  != null);
-        hasIntake     = (intake     != null);
+        hasIntake     = intake.init(hardwareMap, telemetry, "intake");
         hasFlywheel   = (flywheel   != null);
 
         // Drivetrain directions
@@ -165,7 +231,6 @@ public class TeamBotTeleop_latest extends OpMode {
         if (hasFrontRight) frontRight.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         if (hasBackLeft)   backLeft.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         if (hasBackRight)  backRight.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
-        if (hasIntake)     intake.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
 
         if (hasFlywheel) {
             // Shooter usually FLOATS on zero, so wheel can spin down naturally.
@@ -218,17 +283,8 @@ public class TeamBotTeleop_latest extends OpMode {
         }
 
 
-        // AprilTag
-        aprilTagWebcam.init(hardwareMap, telemetry);
-
-        // ~1 foot (12 inches) shoot window
-        aprilTagWebcam.setTargetRange(targetDist);
-        aprilTagWebcam.setRangeTolerance(targetDistTol);      // 10–14 inches
-        aprilTagWebcam.setTargetBearing(targetBearing);
-        aprilTagWebcam.setBearingTolerance(targetBearingTol);
-
-        // Status
-        aprilTagWebcam.reportHardwareStatus();
+        initVision();
+        ballDetector.setSoundEnabled(SOUND_ENABLED);
 
 //        leftFeederLauncher.reportHardwareStatus();
 //        rightFeederLauncher.reportHardwareStatus();
@@ -244,36 +300,66 @@ public class TeamBotTeleop_latest extends OpMode {
     public void loop() {
 
         // -----------------------------
+        // AUTOPILOT (gamepad1 START)
+        // -----------------------------
+        boolean startPressed = gamepad1.start && !lastStartButton;
+        lastStartButton = gamepad1.start;
+        if (autopilot != null) {
+            boolean driverTookOver = Math.abs(gamepad1.left_stick_x) > 0.3
+                    || Math.abs(gamepad1.left_stick_y) > 0.3 || Math.abs(gamepad1.right_stick_x) > 0.3;
+            if (startPressed || driverTookOver) {
+                endAutopilot(driverTookOver ? "driver took over" : "START pressed");
+            } else {
+                telemetry.addData("🤖 AUTOPILOT", "ON  (START or move a stick to drive)");
+                try {
+                    autopilot.loop();   // shows its own telemetry
+                } catch (Exception e) {
+                    endAutopilot("crashed: " + e);
+                }
+                return;
+            }
+        } else if (startPressed) {
+            startAutopilot();
+            if (autopilot != null) return;
+        }
+        if (!autopilotMessage.isEmpty()) telemetry.addLine(autopilotMessage);
+        telemetry.addData("Autopilot", "press START (gamepad1)");
+
+        // -----------------------------
         // AprilTag Update + Shoot Ready
         // -----------------------------
-        aprilTagWebcam.update();
+        updateVision();
 
-        AprilTagDetection tag24 = aprilTagWebcam.getTagBySpecificId(24); // RED goal
-        AprilTagDetection tag20 = aprilTagWebcam.getTagBySpecificId(20); // BLUE goal
+        // BIOBUZZ: aim at a HIVE CELL. Each CELL has an AprilTag cluster on its underside
+        // (red 30-37, blue 38-45) whose origin is the center of the CELL opening.
+        CellTarget redCell  = cellTarget(true);
+        CellTarget blueCell = cellTarget(false);
 
         // Telemetry (optional but useful)
-        if (tag24 != null) {
-            telemetry.addLine("Seeing Tag 24 (RED GOAL)");
-            telemetry.addData("Tag24 Range (in target 36 tol 6)", tag24.ftcPose.range);
-            telemetry.addData("Tag24 Bearing (deg target -3 tol 7)", tag24.ftcPose.bearing);
+        if (redCell != null) {
+            telemetry.addLine("Seeing RED HIVE CELL");
+            telemetry.addData("Red CELL Range (in)", "%.1f (target %.0f tol %.0f)",
+                    redCell.rangeIn, targetDist, targetDistTol);
+            telemetry.addData("Red CELL Bearing (deg)", "%.1f (target %.0f tol %.0f)",
+                    redCell.bearingDeg, targetBearing, targetBearingTol);
         }
-        if (tag20 != null) {
-            telemetry.addLine("Seeing Tag 20 (BLUE GOAL)");
-            telemetry.addData("Tag20 Range (in target 36 tol 6)", tag20.ftcPose.range);
-            telemetry.addData("Tag20 Bearing (deg target 0 tol 3)", tag20.ftcPose.bearing);
+        if (blueCell != null) {
+            telemetry.addLine("Seeing BLUE HIVE CELL");
+            telemetry.addData("Blue CELL Range (in)", "%.1f (target %.0f tol %.0f)",
+                    blueCell.rangeIn, targetDist, targetDistTol);
+            telemetry.addData("Blue CELL Bearing (deg)", "%.1f (target %.0f tol %.0f)",
+                    blueCell.bearingDeg, targetBearing, targetBearingTol);
         }
 
-        // In-range if either goal tag is in the ~1ft zone
-        boolean inShootRange =
-                aprilTagWebcam.IsRobotinZone(24) ||
-                        aprilTagWebcam.IsRobotinZone(20);
+        // In-range if either HIVE CELL is in the shoot window
+        boolean inShootRange = inShootZone(redCell) || inShootZone(blueCell);
 
         // Debounce so light doesn't flicker
         if (inShootRange) shootInRangeCount++;
         else shootInRangeCount = 0;
 
         if (shootInRangeCount >= SHOOT_DEBOUNCE_FRAMES) {
-            telemetry.addData("✅ SHOOT RANGE (Tag 24 or 20)", targetDist+'\t'+targetDistTol);
+            telemetry.addData("✅ SHOOT RANGE (HIVE CELL)", "%.0f +/- %.0f in", targetDist, targetDistTol);
             light.green();
         } else {
             light.blue();
@@ -285,6 +371,87 @@ public class TeamBotTeleop_latest extends OpMode {
         double y  = -gamepad1.left_stick_y;   // forward = +1
         double x  =  gamepad1.left_stick_x;   // strafe right = +1
         double rx =  gamepad1.right_stick_x;  // rotate right = +1
+
+        //----------------------------------
+        // 1B. BALL AUTO-AIM (gamepad1, hold to turn toward a ball)
+        // LB = closest ball, X = blue, B = red, Y = yellow
+        // Driver keeps forward/strafe control; only rotation is overridden.
+        //----------------------------------
+
+        // Sound on/off: gamepad1 BACK (one toggle per press)
+        if (gamepad1.back && !lastSoundToggle) {
+            ballDetector.setSoundEnabled(!ballDetector.isSoundEnabled());
+            telemetry.speak(ballDetector.isSoundEnabled() ? "sound on" : "sound off");
+        }
+        lastSoundToggle = gamepad1.back;
+
+        BallDetector.Ball ballTarget = null;
+        if (gamepad1.x) {
+            ballTarget = ballDetector.getClosestBall(BallDetector.BallColor.BLUE);
+        } else if (gamepad1.b) {
+            ballTarget = ballDetector.getClosestBall(BallDetector.BallColor.RED);
+        } else if (gamepad1.y) {
+            ballTarget = ballDetector.getClosestBall(BallDetector.BallColor.YELLOW);
+        } else if (gamepad1.left_bumper) {
+            ballTarget = ballDetector.getClosestBall();
+        }
+
+        boolean ballAiming = gamepad1.left_bumper || gamepad1.x || gamepad1.b || gamepad1.y;
+        if (ballAiming && ballTarget != null) {
+            ballScanner.reset();
+            // bearing > 0 means ball is to the LEFT, so turn left (negative rx)
+            if (Math.abs(ballTarget.bearing) > BALL_AIM_TOLERANCE) {
+                rx = Range.clip(-ballTarget.bearing * BALL_TURN_GAIN,
+                        -BALL_MAX_AUTO_TURN, BALL_MAX_AUTO_TURN);
+            } else {
+                rx = 0;
+            }
+        } else if (ballAiming && LOOK_AROUND_WHEN_AIMING && Math.abs(gamepad1.right_stick_x) < 0.1) {
+            // No ball in view: turn to look (the driver's own turning always wins)
+            rx = ballScanner.turnPower();
+        } else {
+            ballScanner.reset();
+        }
+
+        //----------------------------------
+        // 1C. HIVE AUTO-ORIENT (gamepad1 RB hold, or HIVE LOCK via right stick click)
+        //----------------------------------
+        boolean lockClick = gamepad1.right_stick_button;
+        if (lockClick && !lastHiveLockToggle) {
+            hiveLock = !hiveLock;
+            telemetry.speak(hiveLock ? "hive lock on" : "hive lock off");
+        }
+        lastHiveLockToggle = lockClick;
+        boolean driverTurning = Math.abs(gamepad1.right_stick_x) > 0.1;
+        boolean hiveAiming = (gamepad1.right_bumper || hiveLock) && !ballAiming && !driverTurning;
+        CellTarget ourCell = AUTOPILOT_RED_ALLIANCE ? redCell : blueCell;
+        String hiveStatus;
+        if (!hiveAiming) {
+            hiveScanner.reset();
+            hiveStatus = hiveLock ? "LOCK on (paused: you're turning or aiming at a ball)"
+                    : "LOCK off (click the right stick to turn it on, or hold RB)";
+        } else if (ourCell != null) {
+            hiveScanner.reset();
+            hiveLastBearing = ourCell.bearingDeg;
+            double error = ourCell.bearingDeg - targetBearing;      // + = HIVE is to the LEFT
+            if (Math.abs(error) > HIVE_AIM_TOLERANCE) {
+                double turn = Range.clip(error * HIVE_TURN_GAIN, -HIVE_MAX_TURN, HIVE_MAX_TURN);
+                if (Math.abs(turn) < HIVE_MIN_TURN) turn = Math.signum(turn) * HIVE_MIN_TURN;
+                rx = -turn;                                         // rx + = turn RIGHT
+                hiveStatus = String.format("turning to the HIVE: %.1f deg off", error);
+            } else {
+                rx = 0;
+                hiveStatus = "FACING THE HIVE";
+            }
+        } else if (gamepad1.right_bumper && HIVE_LOOK_AROUND) {
+            // Not in view: turn to look, starting toward where it was last seen
+            if (!hiveScanner.isTurning() && hiveScanner.searchMs() == 0) hiveScanner.searchToward(hiveLastBearing);
+            rx = hiveScanner.turnPower();
+            hiveStatus = "looking for our HIVE CELL...";
+        } else {
+            hiveStatus = "LOCK on, HIVE not in view (hold RB to look for it)";
+        }
+        telemetry.addData("HIVE orient", hiveStatus);
 
         double flPower = y + x + rx;
         double blPower = y - x + rx;
@@ -303,18 +470,47 @@ public class TeamBotTeleop_latest extends OpMode {
         if (hasBackRight)  backRight.setPower(brPower);
 
         //----------------------------------
-        // 2. INTAKE CONTROL (gamepad2 A/B/X)
+        // 2. INTAKE CONTROL (autorun; gamepad2 Y on/off, A on, B out)
         //----------------------------------
-        double intakePower = 0.0;
+        // AUTORUN: the intake runs IN (counterclockwise, see Intake.IN_IS_COUNTERCLOCKWISE) from
+        // Play. gamepad2 Y = turn it off / on, A = on, B (hold) = spit out.
+        // COMPETITION MODE (gamepad2 D-pad UP toggles): instead of running all the time, the intake
+        // only spins while the camera sees a ball we want close in front (and a moment after,
+        // while the ball passes under the camera). Hold A to run it anyway.
+        boolean yNow = gamepad2.y;
+        if (yNow && !lastIntakeToggle) intakeAutoOn = !intakeAutoOn;
+        lastIntakeToggle = yNow;
+        boolean dpadUpNow = gamepad2.dpad_up;
+        if (dpadUpNow && !lastCompetitionToggle) {
+            intakeCompetitionMode = !intakeCompetitionMode;
+            intakeAutoOn = true;
+        }
+        lastCompetitionToggle = dpadUpNow;
+
+        boolean ballWanted = intakeBallAhead();
+        double nowMs = System.nanoTime() / 1e6;
+        if (ballWanted) intakeBallSeenMs = nowMs;
+        boolean competitionActive = intakeCompetitionMode && ballCameraOk;
+        boolean spinForBall = !competitionActive || nowMs - intakeBallSeenMs < INTAKE_KEEP_SPINNING_MS;
+
+        double intakePower = (intakeAutoOn && spinForBall) ? 1.0 : 0.0;   // +1 = in, -1 = out
         if (gamepad2.a) {
-            intakePower = 1.0;
-        } else if (gamepad2.b) {
+            intakeAutoOn = true;
+            intakePower = 1.0;                 // A: run in now, ball or not
+        }
+        if (gamepad2.b) {
             intakePower = -1.0;
-        } else if (gamepad2.x) {
-            intakePower = 0.0;
         }
         if (hasIntake) {
-            intake.setPower(intakePower);
+            intake.run(intakePower);
+            String how;
+            if (!intakeAutoOn)                how = "OFF (gamepad2 Y or A = on)";
+            else if (!intakeCompetitionMode)  how = "ALWAYS ON (gamepad2 D-pad UP = competition mode)";
+            else if (!ballCameraOk)           how = "COMPETITION, but no ball camera: always on";
+            else                              how = "COMPETITION: " + (ballWanted ? "ball seen - spinning"
+                    : spinForBall ? "pulling the ball in" : "waiting for a ball (A = run anyway)");
+            telemetry.addData("Intake", how);
+            intake.addTelemetry();
         }
         //----------------------------------
         // 3. ARM SERVO CONTROL (ONE STEP PER PRESS)
@@ -537,6 +733,21 @@ public class TeamBotTeleop_latest extends OpMode {
 //        telemetry.addData("fl/br/bl/fr", "%.2f %.2f %.2f %.2f",
 //                flPower, brPower, blPower, frPower);
 
+        telemetry.addLine("== BALLS ==");
+        BallDetector.Ball closestBall = ballDetector.getClosestBall();
+        if (closestBall != null) {
+            telemetry.addData("Closest Ball", "%s  %.1f in  %.1f deg",
+                    closestBall.color, closestBall.distance, closestBall.bearing);
+        } else {
+            telemetry.addData("Closest Ball", "none");
+        }
+        telemetry.addData("Ball Sound", ballDetector.isSoundEnabled() ? "ON (BACK to mute)" : "OFF (BACK to unmute)");
+        if (ballAiming) {
+            telemetry.addData("Ball Aim", ballTarget != null
+                    ? "AIMING at " + ballTarget.color
+                    : "no matching ball in view - turning to look");
+        }
+
         telemetry.addLine("== INTAKE ==");
 //        telemetry.addData("intakePower", "%.2f", intakePower);
 //        telemetry.addData("intakePresent", hasIntake);
@@ -614,7 +825,7 @@ public class TeamBotTeleop_latest extends OpMode {
         telemetry.addData("frontRight",  hasFrontRight ? "OK" : "MISSING");
         telemetry.addData("backLeft",    hasBackLeft   ? "OK" : "MISSING");
         telemetry.addData("backRight",   hasBackRight  ? "OK" : "MISSING");
-        telemetry.addData("intake",      hasIntake     ? "OK" : "MISSING");
+        telemetry.addData("intake",      hasIntake     ? "OK" : "MISSING: " + intake.getProblem());
         telemetry.addData("feederMotor", hasFeederMotor ? "OK" : "MISSING");
     }
 
@@ -652,10 +863,185 @@ public class TeamBotTeleop_latest extends OpMode {
 
 
 
+    /** True if the CELL is inside the shoot window (targetDist / targetBearing +/- tolerances). */
+    private boolean inShootZone(CellTarget cell) {
+        return cell != null
+                && Math.abs(cell.rangeIn - targetDist) <= targetDistTol
+                && Math.abs(cell.bearingDeg - targetBearing) <= targetBearingTol;
+    }
+
+    /**
+     * Competition mode: is there a ball we want close in front of the intake? POLLEN, or our
+     * alliance's NECTAR (AUTOPILOT_RED_ALLIANCE), within INTAKE_SEE_DIST_IN and near straight ahead.
+     */
+    private boolean intakeBallAhead() {
+        if (!ballCameraOk) return false;
+        BallDetector.BallColor opponent = AUTOPILOT_RED_ALLIANCE ? BallDetector.BallColor.BLUE : BallDetector.BallColor.RED;
+        try {
+            for (BallDetector.Ball b : ballDetector.getBalls()) {
+                if (b.color == opponent) continue;
+                if (b.distance <= INTAKE_SEE_DIST_IN && Math.abs(b.bearing) <= INTAKE_SEE_BEARING_DEG) return true;
+            }
+        } catch (Exception ignored) { }
+        return false;
+    }
+
+    /** A HIVE CELL from whichever camera is in use. */
+    private CellTarget cellTarget(boolean red) {
+        return limelight != null ? limelight.getCellTarget(red) : aprilTagWebcam.getCellTarget(red);
+    }
+
+    /** Open the cameras (also used to take them back from the autopilot). */
+    private void initVision() {
+        // Camera: a Limelight 3A named "limelight" if configured, otherwise "Webcam 1"
+        limelight = LimelightVision.tryCreate(hardwareMap, telemetry);
+        if (limelight != null && BallDetector.webcamConfigured(hardwareMap)) {
+            // Both cameras: Limelight = HIVE AprilTags only, C270 webcam = all balls
+            limelightTagsOnly = true;
+            ballDetector.init(hardwareMap, telemetry);
+            ballCameraOk = true;
+            telemetry.addLine("Cameras: Limelight for AprilTags, Webcam 1 for balls");
+        } else if (limelight != null) {
+            ballDetector.useLimelight(limelight, telemetry);
+            ballCameraOk = true;
+            telemetry.addLine("Using Limelight 3A");
+        } else {
+            // AprilTag + ball detection on the same webcam
+            ballDetector.buildProcessors(telemetry);
+            try {
+                aprilTagWebcam.init(hardwareMap, telemetry, ballDetector.getProcessors());
+                ballCameraOk = true;
+            } catch (Exception e) {
+                ballCameraOk = false;
+                telemetry.addLine("⚠️ No camera found: no Limelight 3A and no \"Webcam 1\" in the robot"
+                        + " configuration. Run LimelightTest for setup help.");
+            }
+            aprilTagWebcam.reportHardwareStatus();
+        }
+    }
+
+    /** Close the cameras (AprilTags + ball detection). */
+    private void stopVision() {
+        if (limelight != null) {
+            limelight.stop();
+        } else {
+            aprilTagWebcam.stop();
+        }
+        ballDetector.stop();   // closes the webcam if the ball detector opened it
+    }
+
+    // -------------------------------------------------
+    // AUTOPILOT: gamepad1 START hands the robot to the camera auto (find balls, collect, aim at
+    // the HIVE, shoot, avoid robots/walls). START again, or moving any stick, gives control back.
+    // -------------------------------------------------
+
+    private void startAutopilot() {
+        stopVision();                                 // the autopilot opens its own cameras
+        stopAllMotors();
+        final boolean red = AUTOPILOT_RED_ALLIANCE;
+        BallSpeakerAuto pilot = new BallSpeakerAuto() {
+            @Override protected boolean redAlliance() { return red; }
+            @Override protected double autoLengthMs() { return Double.POSITIVE_INFINITY; }
+        };
+        pilot.hardwareMap = hardwareMap;
+        pilot.telemetry = telemetry;
+        pilot.gamepad1 = gamepad1;
+        pilot.gamepad2 = gamepad2;
+        try {
+            pilot.init();
+            pilot.start();
+            autopilot = pilot;
+            telemetry.speak("autopilot on");
+        } catch (Exception e) {
+            autopilotMessage = "Autopilot couldn't start: " + e;
+            try { pilot.stop(); } catch (Exception ignored) { }
+            stopAllMotors();
+            initVision();
+        }
+    }
+
+    private void endAutopilot(String why) {
+        try {
+            autopilot.stop();
+        } catch (Exception ignored) {
+            // still stop the motors and take the cameras back below
+        }
+        autopilot = null;
+        stopAllMotors();
+        initVision();
+        autopilotMessage = "Autopilot off: " + why;
+        telemetry.speak("driver control");
+    }
+
+    private void stopAllMotors() {
+        for (com.qualcomm.robotcore.hardware.DcMotorSimple m
+                : hardwareMap.getAll(com.qualcomm.robotcore.hardware.DcMotorSimple.class)) {
+            try {
+                m.setPower(0);
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    /**
+     * Update the camera and ball detection. The Limelight runs one pipeline at a time: the
+     * HIVE (AprilTags, for the shoot-ready light) normally, and the matching ball color while
+     * gamepad1 X (blue) / B (red) / Y or LB (yellow POLLEN) is held for ball auto-aim.
+     */
+    private void updateVision() {
+        if (limelight != null && limelightTagsOnly) {
+            limelight.setMode(LimelightVision.Mode.HIVE, BallDetector.BallColor.YELLOW);
+            limelight.update();
+            limelight.displayTelemetry();
+        } else if (limelight != null) {
+            BallDetector.BallColor aimColor = null;
+            if (gamepad1.x)      aimColor = BallDetector.BallColor.BLUE;
+            else if (gamepad1.b) aimColor = BallDetector.BallColor.RED;
+            else if (gamepad1.y || gamepad1.left_bumper) aimColor = BallDetector.BallColor.YELLOW;
+            // Competition-mode intake with only a Limelight: watch for POLLEN instead of the HIVE
+            // (the shoot-ready light then needs Webcam 1 too, or competition mode off)
+            boolean orientingToHive = gamepad1.right_bumper || hiveLock;
+            boolean watchForIntake = aimColor == null && !orientingToHive
+                    && intakeCompetitionMode && intakeAutoOn && hasIntake;
+            if (watchForIntake) aimColor = BallDetector.BallColor.YELLOW;
+            limelight.setMode(aimColor == null ? LimelightVision.Mode.HIVE : LimelightVision.Mode.BALLS,
+                    aimColor == null ? BallDetector.BallColor.YELLOW : aimColor);
+            limelight.update();
+            limelight.displayTelemetry();
+        } else {
+            aprilTagWebcam.update();
+        }
+        ballDetector.update();
+    }
+
+    @Override
+    public void init_loop() {
+        // Detect and announce balls while waiting for Play (works with only a camera attached)
+        updateVision();
+        ballDetector.displayTelemetry();
+        telemetry.update();
+    }
+
     @Override
     public void start() {
+        intakeAutoOn = INTAKE_AUTORUN;   // the intake starts running when Play is pressed
+        hiveLock = HIVE_LOCK_AT_START;   // face the HIVE while driving, from Play
+        intakeCompetitionMode = INTAKE_COMPETITION_MODE;
+
         // Start flywheels on launchers (not ready to shoot)
-        double targetTPS = rpmToTicksPerSec(FLYWHEEL_TARGET_RPM, FLYWHEEL_TPR);
-        flywheel.setVelocity(targetTPS);
+        if (hasFlywheel) {
+            double targetTPS = rpmToTicksPerSec(FLYWHEEL_TARGET_RPM, FLYWHEEL_TPR);
+            flywheel.setVelocity(targetTPS);
+        }
+    }
+
+    @Override
+    public void stop() {
+        if (autopilot != null) {
+            autopilot.stop();      // closes the cameras it opened and stops its motors
+            autopilot = null;
+        } else {
+            stopVision();
+        }
     }
 }

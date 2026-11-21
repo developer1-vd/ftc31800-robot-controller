@@ -6,14 +6,19 @@ import com.pedropathing.geometry.Pose;
 import com.pedropathing.paths.Path;
 import com.pedropathing.paths.PathChain;
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
+import com.qualcomm.robotcore.eventloop.opmode.Disabled;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.Servo;
 import com.qualcomm.robotcore.util.ElapsedTime;
 
+import org.firstinspires.ftc.teamcode.mechanisms.BallCollector;
 import org.firstinspires.ftc.teamcode.mechanisms.FeederLauncher;
 
+// DECODE (2025-26) autonomous: last season's field and goal. Disabled for BIOBUZZ;
+// use BiobuzzAutoRed / BiobuzzAutoBlue instead.
 @Autonomous(name = "RedTeamBotAutoFarShort", group = "Examples")
+@Disabled
 public class RedTeamBotAutoFarShort extends OpMode {
 
     private Follower follower;
@@ -31,6 +36,10 @@ public class RedTeamBotAutoFarShort extends OpMode {
         SHOOT_UPDATE,
         SCORE_TO_LEAVE,
         END,
+        COLLECT_BALL,
+        RETURN_TO_SCORE,
+        SHOOT_COLLECTED,
+        LEAVE_AGAIN,
         EXIT
     }
 
@@ -64,6 +73,23 @@ public class RedTeamBotAutoFarShort extends OpMode {
     private FeederLauncher leftFeederLauncher = new FeederLauncher();
     private FeederLauncher rightFeederLauncher = new FeederLauncher();
 
+    // After the path, use the camera to find and pick up a ball with the time left.
+    // Set to false to skip ball pickup.
+    private static final boolean COLLECT_BALL_AFTER_PATH = true;
+    private static final double AUTO_LENGTH_MS = 30000;
+    private final BallCollector ballCollector = new BallCollector();
+
+    // After picking up a ball: drive back to scorePose, shoot it, then leave again.
+    // Set to false to just stop after pickup.
+    private static final boolean SHOOT_COLLECTED_BALL = true;
+    // Time to save for driving back, shooting, and leaving; pickup gives up earlier than this.
+    private static final double RETURN_AND_SHOOT_MS = 10000;
+    // If time gets this low while returning/shooting, give up and leave so we still get LEAVE.
+    private static final double LEAVE_TIME_MS = 3000;
+    private boolean shootingCollectedBall = false;
+    // Driver Station says "red ball", "got ball", etc. Set to false for silence.
+    private static final boolean SOUND_ENABLED = true;
+
     // ------------------- PATH BUILDING -------------------
     public void buildPaths() {
         leavelaunchline = new Path(new BezierLine(scorePose, endPose));
@@ -92,8 +118,53 @@ public class RedTeamBotAutoFarShort extends OpMode {
 
             case END:
                 if (!follower.isBusy()) {
-                    setPathState(PATHSTATE.EXIT);
+                    if (COLLECT_BALL_AFTER_PATH) {
+                        ballCollector.start();
+                        setPathState(PATHSTATE.COLLECT_BALL);
+                    } else {
+                        setPathState(PATHSTATE.EXIT);
+                    }
                 }
+                break;
+
+            case COLLECT_BALL:
+                ballCollector.update(msLeftInAuto());
+                if (ballCollector.isDone()) {
+                    if (SHOOT_COLLECTED_BALL && ballCollector.capturedBall()) {
+                        follower.followPath(pathTo(scorePose), true);
+                        setPathState(PATHSTATE.RETURN_TO_SCORE);
+                    } else {
+                        setPathState(PATHSTATE.EXIT);
+                    }
+                }
+                break;
+
+            case RETURN_TO_SCORE:
+                if (msLeftInAuto() < LEAVE_TIME_MS) {
+                    setPathState(PATHSTATE.LEAVE_AGAIN);
+                } else if (!follower.isBusy()) {
+                    // Same feed-then-shoot steps as the second preload volley (INTAKE -> SHOOT_2)
+                    shootingCollectedBall = true;
+                    actionTimer.reset();
+                    intakeTimer.reset();
+                    shootstate = SHOOTSTATE.INTAKE;
+                    setPathState(PATHSTATE.SHOOT_COLLECTED);
+                }
+                break;
+
+            case SHOOT_COLLECTED:
+                if (msLeftInAuto() < LEAVE_TIME_MS) {
+                    if (hasIntake) intake.setPower(0.0);
+                    setPathState(PATHSTATE.LEAVE_AGAIN);
+                } else {
+                    shootUpdate();   // SHOOT_END moves on to LEAVE_AGAIN
+                }
+                break;
+
+            case LEAVE_AGAIN:
+                // Drive back off the launch line so LEAVE still counts
+                follower.followPath(pathTo(endPose), true);
+                setPathState(PATHSTATE.EXIT);
                 break;
         }
     }
@@ -101,6 +172,18 @@ public class RedTeamBotAutoFarShort extends OpMode {
     public void setPathState(PATHSTATE state) {
         pathState = state;
         pathTimer.reset();
+    }
+
+    private double msLeftInAuto() {
+        return AUTO_LENGTH_MS - opmodeTimer.milliseconds();
+    }
+
+    /** Straight path from where the robot is now to the target pose. */
+    private Path pathTo(Pose target) {
+        Pose current = follower.getPose();
+        Path path = new Path(new BezierLine(current, target));
+        path.setLinearHeadingInterpolation(current.getHeading(), target.getHeading());
+        return path;
     }
 
     // ------------------- SHOOTING -------------------
@@ -191,7 +274,11 @@ public class RedTeamBotAutoFarShort extends OpMode {
                 break;
 
             case SHOOT_END:
-                setPathState(PATHSTATE.SCORE_TO_LEAVE);
+                if (shootingCollectedBall) {
+                    setPathState(PATHSTATE.LEAVE_AGAIN);
+                } else {
+                    setPathState(PATHSTATE.SCORE_TO_LEAVE);
+                }
                 break;
         }
 
@@ -248,6 +335,9 @@ public class RedTeamBotAutoFarShort extends OpMode {
         arm = hardwareMap.get(Servo.class, "armServo");
 
         follower = Constants.createFollower(hardwareMap);
+        ballCollector.init(hardwareMap, telemetry, follower, intake);
+        if (SHOOT_COLLECTED_BALL) ballCollector.setStopBeforeEndMs(RETURN_AND_SHOOT_MS);
+        ballCollector.setSoundEnabled(SOUND_ENABLED);
         buildPaths();
         follower.setStartingPose(scorePose);
 
@@ -271,6 +361,7 @@ public class RedTeamBotAutoFarShort extends OpMode {
 
     @Override
     public void stop() {
+        ballCollector.stop();
         leftFeederLauncher.stop();
         rightFeederLauncher.stop();
     }

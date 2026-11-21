@@ -1,0 +1,42 @@
+# Builds the robot app (TeamCode APK) on GitHub on every push and pull request,
+# and on demand (Actions tab -> "Build robot APK" -> "Run workflow").
+# Download the APK from the run's "Artifacts" section (TeamCode-debug-apk).
+name: Build robot APK
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: FtcRobotController-master
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle (with caching)
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install Android SDK platform 30 (compileSdk in build.common.gradle)
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-30" > /dev/null
+
+      - name: Build TeamCode APK
+        run: bash ./gradlew :TeamCode:assembleDebug --console=plain
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TeamCode-debug-apk
+          path: FtcRobotController-master/TeamCode/build/outputs/apk/debug/TeamCode-debug.apk
+          if-no-files-found: error
